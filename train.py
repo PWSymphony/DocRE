@@ -16,10 +16,9 @@ from untils import Accuracy, log_config_information, get_params, get_logger
 from test import test, ATLtest
 from Config import Config, option
 import platform
-from loss import ATLoss, BCELoss, MyLoss
+from loss import ATLoss, BCELoss
 from transformers.optimization import get_linear_schedule_with_warmup
 from torch.cuda.amp import autocast
-# from torchsummary import summary
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
@@ -32,8 +31,8 @@ if platform.system().lower() == 'linux':
 
 log.set_verbosity_error()
 
-loss_fn_dict = {'BCE': BCELoss, 'ATL': ATLoss, 'MY': MyLoss}
-test_fn_dict = {'BCE': test, 'ATL': ATLtest, 'MY': test}
+loss_fn_dict = {'BCE': BCELoss, 'ATL': ATLoss}
+test_fn_dict = {'BCE': test, 'ATL': ATLtest}
 
 
 class trainer:
@@ -80,7 +79,7 @@ class trainer:
         self.scheduler = get_linear_schedule_with_warmup(self.optimizer, self.warm_step, self.total_step)
         self.time = time.time()
 
-        self.loss_fn = loss_fn_dict[con.loss_fn]()
+        self.loss_fn = loss_fn_dict[con.loss_fn](config)
         self.test_fn = test_fn_dict[con.loss_fn]
 
     def LR_Lambda(self, step):
@@ -163,21 +162,22 @@ class trainer:
 
                 # loss.backward()
                 scaler.scale(loss).backward()
-
                 if self.config.clip_grad:
                     clip_grad_norm_(self.model.parameters(), max_norm=1, norm_type=2)
-                total_loss += loss.item()
-                scaler.scale(self.optimizer).step()
+                scaler.step(self.optimizer)
+                scaler.update()
+
                 self.optimizer.zero_grad(set_to_none=True)
                 self.scheduler.step()
                 self.compute_output(pred, relations, relation_mask)
                 global_step += 1
-
+                total_loss += loss.item()
                 if global_step % self.config.log_step == 0:
                     self.train_log(epoch, global_step, total_loss)
                     total_loss = 0
 
-            if self.acc_not_NA.get() > 0.5 and epoch % self.config.evaluate_epoch == 0:
+            # if self.acc_not_NA.get() > 0.5 and
+            if epoch % self.config.evaluate_epoch == 0:
                 best_f1, best_epoch = self.eval(best_f1, best_epoch, epoch)
                 self.get_time()
 
@@ -191,7 +191,7 @@ if __name__ == "__main__":
     con = Config(opt)
 
     PTM = BertModel.from_pretrained(f'bert-base-{con.data_type}')
-    MODEL = models.my_model3
+    MODEL = models.my_model
     Model = MODEL(config=con, PTM=PTM).cuda()
     logger = get_logger(opj(con.log_dir, con.save_name))
     log_config_information(con, logger)

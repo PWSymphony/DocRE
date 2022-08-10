@@ -4,6 +4,7 @@ Time    : 2022/7/29 20:31
 Author  : Wang
 """
 import argparse
+import logging
 import warnings
 import time
 import json
@@ -39,7 +40,7 @@ class PlModel(pl.LightningModule):
         self.args = args
         bert_name = f'bert-base-{args.bert_type}'
         bert = BertModel.from_pretrained(bert_name)
-        self.model = models.my_model3(args, PTM=bert)
+        self.model = models.my_model(args, PTM=bert)
         self.loss_fn = LOSS_FN[args.loss_fn](args)
         self.loss_list = []
         self.acc = all_accuracy()
@@ -102,9 +103,7 @@ class PlModel(pl.LightningModule):
             relation_mask = batch['relation_mask'].unsqueeze(2)
             top_index = F.one_hot(torch.argmax(output, dim=-1),
                                   num_classes=self.args.relation_num).bool()
-            result = torch.zeros_like(output, dtype=torch.bool)
-            result[top_index] = True
-            result = result & relations & relation_mask
+            result = top_index & relations & relation_mask
 
             gold = relations.sum(0).sum(0)
             pred = result.sum(0).sum(0)
@@ -113,14 +112,14 @@ class PlModel(pl.LightningModule):
 
     @staticmethod
     def add_model_specific_args(parent_parser):
-        parser = parent_parser.add_argument_group("Pl_Model")
-        parser.add_argument("--loss_fn", type=str, default="BCE", choices=['BCE', "ATL"])
-        parser.add_argument("--lr", type=float, default=1e-4)
-        parser.add_argument("--pre_lr", type=float, default=5e-5)
-        parser.add_argument("--warm_ratio", type=float, default=0.06)
-        parser.add_argument("--relation_num", type=int, default=97)
-        parser.add_argument("--data_path", type=str, default='./data')
-        parser.add_argument("--result_dir", type=str, default='./result')
+        cur_parser = parent_parser.add_argument_group("Pl_Model")
+        cur_parser.add_argument("--loss_fn", type=str, default="ATL", choices=['BCE', "ATL"])
+        cur_parser.add_argument("--lr", type=float, default=1e-4)
+        cur_parser.add_argument("--pre_lr", type=float, default=5e-5)
+        cur_parser.add_argument("--warm_ratio", type=float, default=0.06)
+        cur_parser.add_argument("--relation_num", type=int, default=97)
+        cur_parser.add_argument("--data_path", type=str, default='./data')
+        cur_parser.add_argument("--result_dir", type=str, default='./result')
 
         return parent_parser
 
@@ -128,7 +127,11 @@ class PlModel(pl.LightningModule):
 class MyLogger(LightningLoggerBase):
     def __init__(self, args):
         super(MyLogger, self).__init__()
-        self.base_log = get_logger(path_join(args.log_path, args.save_name), is_print=args.log_print)
+        log_path = path_join(args.log_path, args.save_name)
+        pl_logger = logging.getLogger('pytorch_lightning')
+        pl_logger.addHandler(logging.FileHandler(log_path + '.txt'))
+
+        self.base_log = get_logger(log_path, is_print=args.log_print)
 
     @property
     def name(self):
@@ -165,9 +168,9 @@ class MyLogger(LightningLoggerBase):
 
     @staticmethod
     def add_model_specific_args(parent_parser):
-        parser = parent_parser.add_argument_group("Logger")
-        parser.add_argument("--log_print", action='store_true')
-        parser.add_argument("--log_path", type=str, default=r"./log/")
+        cur_parser = parent_parser.add_argument_group("Logger")
+        cur_parser.add_argument("--log_print", action='store_true')
+        cur_parser.add_argument("--log_path", type=str, default=r"./log/")
         return parent_parser
 
 
@@ -196,10 +199,10 @@ class DataModule(LightningDataModule):
 
     @staticmethod
     def add_model_specific_args(parent_parser):
-        parser = parent_parser.add_argument_group("DataModule")
-        parser.add_argument("--batch_size", type=int, default=1)
-        parser.add_argument("--num_workers", type=int, default=0)
-        parser.add_argument("--is_zip", action="store_true")
+        cur_parser = parent_parser.add_argument_group("DataModule")
+        cur_parser.add_argument("--batch_size", type=int, default=1)
+        cur_parser.add_argument("--num_workers", type=int, default=0)
+        cur_parser.add_argument("--is_zip", action="store_true")
 
         return parent_parser
 
@@ -229,7 +232,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--seed", type=int, default=66)
+    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--accelerator", type=str, default='gpu')
     parser.add_argument("--accumulate_grad_batches", type=int, default=1)
     parser.add_argument("--devices", type=int, nargs='+', default=[0])

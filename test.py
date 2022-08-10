@@ -1,10 +1,8 @@
 import json
 from os.path import join as opj
-import time
 import models
 import numpy as np
 import torch
-# from sklearn import metrics
 from torch.utils.data import DataLoader
 from Config import Config, option
 from Dataset import my_dataset, get_batch
@@ -160,7 +158,7 @@ def test(config: Config, model, output=False, input_theta=-1.0):
 
 def ATLtest(config: Config, model, output=False):
     id2rel = json.load(open(opj(config.data_path, 'raw', 'id2rel.json')))
-    loss_fn = ATLoss()
+    loss_fn = ATLoss(config)
 
     test_result = []
     total_recall = 0  # 有关系的实体对数量(有多少种关系，就记为多少对实体)
@@ -169,7 +167,7 @@ def ATLtest(config: Config, model, output=False):
     top_acc = 0
     hava_label = 0  # 有关系的实体对数量(只要有关系就算1对，不重复记录)
 
-    test_data = my_dataset(opj(config.data_path, f'{config.test_prefix}_{config.data_type}' + '.pkl'))
+    test_data = my_dataset(opj(config.data_path, f'{config.test_prefix}_{config.data_type}'))
 
     dataloader = DataLoader(test_data,
                             batch_size=config.batch_size,
