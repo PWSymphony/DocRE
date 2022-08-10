@@ -9,6 +9,7 @@ from torch import nn
 from torch import optim
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader, RandomSampler
+from pytorch_lightning import seed_everything
 from transformers import logging as log
 from transformers import BertModel
 from Dataset import my_dataset, get_batch
@@ -37,8 +38,7 @@ test_fn_dict = {'BCE': test, 'ATL': ATLtest}
 
 class trainer:
     def __init__(self, config: Config, model: nn.Module, Logger=None):
-        torch.manual_seed(con.seed)
-        torch.cuda.manual_seed(con.seed)
+        seed_everything(config.seed)
 
         param_nums = get_params(model)
         self.config = config
@@ -64,8 +64,7 @@ class trainer:
                                            num_workers=load_data_works,
                                            prefetch_factor=4)
 
-        step_batch = ceil(len(train_data) / config.batch_size)
-        self.total_step = step_batch * config.epochs
+        self.total_step = len(self.train_dataloader) * config.epochs
         self.evaluate_epoch = config.evaluate_epoch
         self.warm_step = config.warm_ratio * self.total_step
         self.decay_step = config.decay_ratio * self.total_step
@@ -73,7 +72,7 @@ class trainer:
 
         PLM = [p for n, p in self.model.named_parameters() if p.requires_grad and ('PTM' in n)]
         not_PLM = [p for n, p in self.model.named_parameters() if p.requires_grad and ('PTM' not in n)]
-        self.optimizer = optim.Adam([{'params': PLM, 'lr': config.pre_lr},
+        self.optimizer = optim.AdamW([{'params': PLM, 'lr': config.pre_lr},
                                      {'params': not_PLM, 'lr': config.lr}])
         # self.scheduler = optim.lr_scheduler.LambdaLR(optimizer=self.optimizer, lr_lambda=self.LR_Lambda)
         self.scheduler = get_linear_schedule_with_warmup(self.optimizer, self.warm_step, self.total_step)
@@ -107,9 +106,10 @@ class trainer:
         if ign_f1 > best_f1:
             best_f1 = ign_f1
             best_epoch = epoch
-            path = opj(self.config.checkpoint_dir, f'{self.config.save_name}_{theta}.pt')
-            torch.save(self.model.state_dict(), path)
-            self.logger.info("Storing result...")
+            if best_f1 > 0.59:
+                path = opj(self.config.checkpoint_dir, f'{self.config.save_name}_{theta}.pt')
+                torch.save(self.model.state_dict(), path)
+                self.logger.info("Storing result...")
         return best_f1, best_epoch
 
     def data_trans(self, data):
