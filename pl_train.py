@@ -24,7 +24,7 @@ from torch.utils.data import DataLoader, RandomSampler
 from transformers import BertModel, logging as transformer_log
 from Dataset import my_dataset, get_batch
 from loss import BCELoss, ATLoss
-from untils import all_accuracy, get_logger
+from untils import all_accuracy, get_logger, Accuracy
 from transformers.optimization import get_linear_schedule_with_warmup
 
 warnings.filterwarnings("ignore", category=PossibleUserWarning)
@@ -46,6 +46,10 @@ class PlModel(pl.LightningModule):
         self.acc = all_accuracy()
         self.total_step = steps
         self.save_hyperparameters(logger=True)
+
+        self.acc_NA = Accuracy()
+        self.acc_not_NA = Accuracy()
+        self.acc_total = Accuracy()
 
     def forward(self, batch):
         return self.model(**batch)
@@ -105,10 +109,13 @@ class PlModel(pl.LightningModule):
                                   num_classes=self.args.relation_num).bool()
             result = top_index & relations & relation_mask
 
-            gold = relations.sum(0).sum(0)
-            pred = result.sum(0).sum(0)
-            self.acc.add_NA(num=gold[0], correct_num=pred[0])
-            self.acc.add_not_NA(num=gold[1:].sum(), correct_num=pred[1:].sum())
+            # gold.sum(0).sum(0) 一对实体有多种关系会被计算为多对实体
+            gold_na = relations[..., 0].sum()
+            gold_not_na = relations[..., 1:].sum(-1).bool().sum()  # 先求和，在将不为0的改为1，再次求和
+            pred_na = result[..., 0].sum()
+            pred_not_na = result[..., 1:].sum()
+            self.acc.add_NA(num=gold_na, correct_num=pred_na)
+            self.acc.add_not_NA(num=gold_not_na, correct_num=pred_not_na)
 
     @staticmethod
     def add_model_specific_args(parent_parser):
@@ -216,15 +223,18 @@ def main(args):
     model = PlModel(args, total_step)
     my_log = MyLogger(args)
 
-    checkpoint_callback = ModelCheckpoint(
-        save_top_k=1,
-        monitor="all_f1",
-        mode="max",
-        dirpath=args.checkpoint_dir,
-        filename=args.save_name,
-    )
+    callbacks = []
+    if args.enable_checkpointing:
+        checkpoint_callback = ModelCheckpoint(
+            save_top_k=1,
+            monitor="all_f1",
+            mode="max",
+            dirpath=args.checkpoint_dir,
+            filename=args.save_name,
+        )
+        callbacks.append(checkpoint_callback)
 
-    trainer = pl.Trainer.from_argparse_args(args=args, logger=my_log, callbacks=[checkpoint_callback],
+    trainer = pl.Trainer.from_argparse_args(args=args, logger=my_log, callbacks=callbacks,
                                             strategy=strategy)
     trainer.fit(model=model, datamodule=dm)
     # trainer.validate(model=model, datamodule=dm, ckpt_path=args.checkpoint_dir + '/ATLOP_cased_AdmW.ckpt')
@@ -238,9 +248,10 @@ if __name__ == "__main__":
     parser.add_argument("--devices", type=int, nargs='+', default=[0])
     parser.add_argument("--max_epochs", type=int, default=30)
     parser.add_argument("--precision", type=int, default=16)
-    parser.add_argument("--log_every_n_steps", type=int, default=100)
+    parser.add_argument("--log_every_n_steps", type=int, default=200)
     parser.add_argument("--enable_checkpointing", action='store_true')
     parser.add_argument("--enable_progress_bar", action='store_true')
+    parser.add_argument("--gradient_clip_val", type=int, default=1)
 
     parser.add_argument("--checkpoint_dir", type=str, default='./checkpoint')
     parser.add_argument("--save_name", type=str, default='test')
