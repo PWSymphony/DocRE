@@ -32,6 +32,8 @@ warnings.filterwarnings("ignore", category=UserWarning)
 transformer_log.set_verbosity_error()
 
 LOSS_FN = {"ATL": ATLoss, "BCE": BCELoss}
+MODELS = {'model': models.my_model, 'model1': models.my_model1, 'model2': models.my_model2,
+          'model3': models.my_model3}
 
 
 class PlModel(pl.LightningModule):
@@ -40,7 +42,7 @@ class PlModel(pl.LightningModule):
         self.args = args
         bert_name = f'bert-base-{args.bert_type}'
         bert = BertModel.from_pretrained(bert_name)
-        self.model = models.my_model(args, PTM=bert)
+        self.model = MODELS[args.model](args, bert)
         self.loss_fn = LOSS_FN[args.loss_fn](args)
         self.loss_list = []
         self.acc = all_accuracy()
@@ -69,7 +71,7 @@ class PlModel(pl.LightningModule):
 
     def training_epoch_end(self, outputs):
         self.acc.clear()
-        self.loss_list = []
+        self.loss_list.clear()
 
     def configure_optimizers(self):
         PLM = [p for n, p in self.named_parameters() if p.requires_grad and ('PTM' in n)]
@@ -127,6 +129,7 @@ class PlModel(pl.LightningModule):
         cur_parser.add_argument("--relation_num", type=int, default=97)
         cur_parser.add_argument("--data_path", type=str, default='./data')
         cur_parser.add_argument("--result_dir", type=str, default='./result')
+        cur_parser.add_argument("--model", type=str, default='model')
 
         return parent_parser
 
@@ -236,8 +239,8 @@ def main(args):
 
     trainer = pl.Trainer.from_argparse_args(args=args, logger=my_log, callbacks=callbacks,
                                             strategy=strategy)
-    trainer.fit(model=model, datamodule=dm)
-    # trainer.validate(model=model, datamodule=dm, ckpt_path=args.checkpoint_dir + '/ATLOP_cased_AdmW.ckpt')
+    # trainer.fit(model=model, datamodule=dm)
+    trainer.validate(model=model, datamodule=dm, ckpt_path=args.checkpoint_dir + '/ATLOP.ckpt')
 
 
 if __name__ == "__main__":
