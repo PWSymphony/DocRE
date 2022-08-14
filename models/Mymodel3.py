@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+import dgl
 from .long_BERT import process_long_input
 from .group_biLinear import group_biLinear
 
@@ -34,7 +34,8 @@ class my_model3(nn.Module):
 
         return h, t
 
-    def context_pooling(self, context, attention, entity_map, hts, ht_mask, context_mask):
+    @staticmethod
+    def context_pooling(context, attention, entity_map, hts, ht_mask):
         batch_size, max_len, _ = context.shape
         heads = attention.shape[1]
 
@@ -51,20 +52,21 @@ class my_model3(nn.Module):
         h_attention = entity_attention[:, _hts[..., 0]].reshape(heads, batch_size, -1, max_len)
         t_attention = entity_attention[:, _hts[..., 1]].reshape(heads, batch_size, -1, max_len)
         context_attention = torch.sum(h_attention * t_attention, dim=0)
-        # context_attention = torch.pow(context_attention, self.n)
-        # context_attention = context_attention / (torch.sum(context_attention, dim=-1, keepdim=True) + 1e-20)
-        context_attention = torch.masked_fill(context_attention, (context_mask == 0).unsqueeze(1), -1e20)
-        context_attention = F.softmax(context_attention, -1)
+        context_attention = context_attention / (torch.sum(context_attention, dim=-1, keepdim=True) + 1e-20)
 
         context_info = context_attention @ context
         return context_info * ht_mask
 
-    def forward(self, **param):
-        input_id = param['input_id']
-        input_mask = param['input_mask']
-        hts = param['hts']
-        mention_map = param['mention_map']
-        entity_map = param['entity_map']
+    def forward(self, batch):
+        input_id = batch['input_id']
+        input_mask = batch['input_mask']
+        hts = batch['hts']
+        mention_map = batch['mention_map']
+        entity_map = batch['entity_map']
+
+        graphs = batch['graphs']
+        inter_index = batch['inter_index']
+        intra_index = batch['intra_index']
 
         ht_mask = (hts.sum(-1) != 0).unsqueeze(-1)
 
@@ -72,9 +74,16 @@ class my_model3(nn.Module):
         h, t = self.get_ht(context, mention_map, entity_map, hts, ht_mask)
 
         entity_map = entity_map @ mention_map
-        context_info = self.context_pooling(context, attention, entity_map, hts, ht_mask, input_mask)
+        context_info = self.context_pooling(context, attention, entity_map, hts, ht_mask)
 
         h = torch.tanh(self.h_dense(h) + self.hc_dense(context_info))
         t = torch.tanh(self.t_dense(t) + self.tc_dense(context_info))
+        pred = self.clas(h, t)
 
-        return self.clas(h, t)
+        inter_feature = torch.cat([pred[i, inter_index[i]] for i in range(len(pred))], dim=0)
+        intra_feature = torch.cat([pred[i, intra_index[i]] for i in range(len(pred))], dim=0)
+        graphs = dgl.batch(graphs)
+        graphs.edges['inter'].data['e'] = inter_feature
+        graphs.edges['intra'].data['e'] = intra_feature
+
+        return pred

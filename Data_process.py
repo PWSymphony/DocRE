@@ -1,21 +1,23 @@
-from collections import defaultdict
 import _pickle as pickle
 import numpy as np
 import torch
 import ujson as json
 from os.path import join as path_join
+from collections import defaultdict
+import dgl
 from tqdm import tqdm
 from transformers import BertTokenizer
 import zipfile
 # import spacy
 from sklearn.utils import shuffle
-import networkx as nx
+
+# import networkx as nx
 
 # spacy.prefer_gpu(0)
 # nlp = spacy.load("en_core_web_sm")
 
 raw_data_path = r"./data/raw"
-out_data_path = r"./data"
+out_data_path = r"./data/with_graph"
 train_annotated_file_name = path_join(raw_data_path, 'train_annotated.json')
 dev_file_name = path_join(raw_data_path, 'dev.json')
 test_file_name = path_join(raw_data_path, 'test.json')
@@ -44,7 +46,7 @@ dis2idx[512:] = 10
 # 在train中出现过的实体对
 fact_in_train = set([])
 
-data_type = r'cased'
+data_type = r'uncased'
 tokenizer = BertTokenizer.from_pretrained(f'bert-base-{data_type}')
 token_start_id = tokenizer.cls_token_id
 token_end_id = tokenizer.sep_token_id
@@ -61,15 +63,14 @@ def process(data_path, suffix=''):
     data = []
 
     for doc_id, doc in tqdm(enumerate(ori_data), total=len(ori_data), desc=suffix, unit='doc'):
-        # if suffix != 'test' and len(doc['labels']) == 0:
-        #     continue
         sent_len = [len(sent) for sent in doc['sents']]
         sent_map = [0] + [sum(sent_len[:i + 1]) for i in range(len(sent_len))]
         mention_start = set()
         mention_end = set()
         ner_id = []
         mention_num = 0
-        for entity in doc['vertexSet']:
+        entity2sent = defaultdict(set)
+        for entity_id, entity in enumerate(doc['vertexSet']):
             mention_num += (len(entity))
             ner_id.append(ner2id[entity[0]['type']])
             for mention in entity:
@@ -78,6 +79,8 @@ def process(data_path, suffix=''):
 
                 mention['global_pos'] = [mention['pos'][0] + sent_map[mention['sent_id']],
                                          mention['pos'][1] + sent_map[mention['sent_id']]]
+
+                entity2sent[entity_id].add(mention['sent_id'])
 
         input_id = [token_start_id]
         word_map = []
@@ -156,10 +159,15 @@ def process(data_path, suffix=''):
         relations = []
         relation_num = len(rel2id)
         ht_distance = []
+        g = defaultdict(list)  # 创建图
+        inter_index = []
+        intra_index = []
+        i = -1
         for j in range(len(doc['vertexSet'])):
             for k in range(len(doc['vertexSet'])):
                 if j == k:
                     continue
+                i += 1
                 relation = [0] * relation_num
                 hts.append([j, k])
                 dis = entity_first_appear[k] - entity_first_appear[j]
@@ -175,20 +183,29 @@ def process(data_path, suffix=''):
                     relation[0] = 1
                 relations.append(relation)
 
+                if entity2sent[j] & entity2sent[k]:
+                    g[('entity', 'intra', 'entity')].append((j, k))  # 实体在同一个句子中出现过
+                    intra_index.append(i)
+                else:
+                    g[('entity', 'inter', 'entity')].append((j, k))  # 实体出现在不同的句子中
+                    inter_index.append(i)
+
         item['hts'] = torch.tensor(hts)
         item['relations'] = torch.tensor(relations)
         item['ht_distance'] = torch.tensor(ht_distance)
+        item['graph'] = dgl.heterograph(g)
+        item['intra_index'] = intra_index
+        item['inter_index'] = inter_index
 
-        ht_num = len(hts)
-
-        mention_ht, mention_ht_map = mention_pair(doc['vertexSet'], ht_num)
-        item['mention_ht'] = torch.tensor(mention_ht)
-        item['mention_ht_map'] = mention_ht_map
-
-        pairs, pair_labels = mention2mention(doc['vertexSet'])
-        pairs, pair_labels = shuffle(pairs, pair_labels)
-        item['pairs'] = torch.tensor(pairs)
-        item['pair_labels'] = torch.tensor(pair_labels)
+        # ht_num = len(hts)
+        # mention_ht, mention_ht_map = mention_pair(doc['vertexSet'], ht_num)
+        # item['mention_ht'] = torch.tensor(mention_ht)
+        # item['mention_ht_map'] = mention_ht_map
+        #
+        # pairs, pair_labels = mention2mention(doc['vertexSet'])
+        # pairs, pair_labels = shuffle(pairs, pair_labels)
+        # item['pairs'] = torch.tensor(pairs)
+        # item['pair_labels'] = torch.tensor(pair_labels)
 
         data.append(item)
 

@@ -54,10 +54,10 @@ class PlModel(pl.LightningModule):
         self.acc_total = Accuracy()
 
     def forward(self, batch):
-        return self.model(**batch)
+        return self.model(batch)
 
     def training_step(self, batch, batch_idx):
-        output = self.model(**batch)
+        output = self.model(batch)
         pred, loss = self.loss_fn(pred=output, batch=batch)
         self.compute_output(output=pred, batch=batch)
         self.loss_list.append(loss)
@@ -90,7 +90,7 @@ class PlModel(pl.LightningModule):
         }
 
     def validation_step(self, batch, batch_idx):
-        output = self.model(**batch)
+        output = self.model(batch)
         self.loss_fn.push_result(output, batch)
         pred, loss = self.loss_fn(pred=output, batch=batch)
         return loss
@@ -127,7 +127,6 @@ class PlModel(pl.LightningModule):
         cur_parser.add_argument("--pre_lr", type=float, default=5e-5)
         cur_parser.add_argument("--warm_ratio", type=float, default=0.06)
         cur_parser.add_argument("--relation_num", type=int, default=97)
-        cur_parser.add_argument("--data_path", type=str, default='./data')
         cur_parser.add_argument("--result_dir", type=str, default='./result')
         cur_parser.add_argument("--model", type=str, default='model')
 
@@ -190,8 +189,8 @@ class DataModule(LightningDataModule):
         self.batch_size = args.batch_size
         self.num_workers = args.num_workers
 
-        train_data_path = f"./data/train_{args.bert_type}"
-        valid_data_path = f'./data/dev_{args.bert_type}'
+        train_data_path = f'{args.data_path}/train_{args.bert_type}'
+        valid_data_path = f'{args.data_path}/dev_{args.bert_type}'
         self.train_dataset = my_dataset(train_data_path, is_zip=args.is_zip)
         self.val_dataset = my_dataset(valid_data_path, is_zip=args.is_zip)
 
@@ -210,6 +209,7 @@ class DataModule(LightningDataModule):
     @staticmethod
     def add_model_specific_args(parent_parser):
         cur_parser = parent_parser.add_argument_group("DataModule")
+        cur_parser.add_argument("--data_path", type=str, default='./data')
         cur_parser.add_argument("--batch_size", type=int, default=1)
         cur_parser.add_argument("--num_workers", type=int, default=0)
         cur_parser.add_argument("--is_zip", action="store_true")
@@ -239,8 +239,8 @@ def main(args):
 
     trainer = pl.Trainer.from_argparse_args(args=args, logger=my_log, callbacks=callbacks,
                                             strategy=strategy)
-    # trainer.fit(model=model, datamodule=dm)
-    trainer.validate(model=model, datamodule=dm, ckpt_path=args.checkpoint_dir + '/ATLOP.ckpt')
+    trainer.fit(model=model, datamodule=dm)
+    # trainer.validate(model=model, datamodule=dm, ckpt_path=args.checkpoint_dir + '/ATLOP.ckpt')
 
 
 if __name__ == "__main__":
