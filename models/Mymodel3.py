@@ -1,8 +1,11 @@
+import dgl
+import dgl.function as fn
 import torch
 import torch.nn as nn
-import dgl
-from .long_BERT import process_long_input
+import torch.nn.functional as F
+
 from .group_biLinear import group_biLinear
+from .long_BERT import process_long_input
 
 
 class my_model3(nn.Module):
@@ -17,6 +20,8 @@ class my_model3(nn.Module):
         self.hc_dense = nn.Linear(PTM_hidden_size, PTM_hidden_size)
         self.tc_dense = nn.Linear(PTM_hidden_size, PTM_hidden_size)
         self.clas = group_biLinear(PTM_hidden_size, config.relation_num, block_size)
+
+        self.g_model = GraphModel(edge_type=['inter', 'intra'], in_feature=97, out_feature=97)
 
     @staticmethod
     def get_ht(context, mention_map, entity_map, hts, ht_mask):
@@ -86,4 +91,43 @@ class my_model3(nn.Module):
         graphs.edges['inter'].data['e'] = inter_feature
         graphs.edges['intra'].data['e'] = intra_feature
 
-        return pred
+        graphs = self.g_model(graphs)
+        graphs = dgl.unbatch(graphs)
+
+        res = []
+        for i in range(input_id.shape[0]):
+            temp = torch.cat([graphs[i].edata['e'][('entity', 'inter', 'entity')],
+                              graphs[i].edata['e'][('entity', 'intra', 'entity')]], dim=0)
+            index = torch.tensor(inter_index[i]+intra_index[i]).sort()[1]
+            temp = temp[index]
+            res.append(temp)
+
+        res = nn.utils.rnn.pad_sequence(res, batch_first=True)
+
+        return res
+
+
+class GraphModel(nn.Module):
+    def __init__(self, in_feature, out_feature, edge_type):
+        super(GraphModel, self).__init__()
+        self.dense = nn.ModuleDict({k: nn.Linear(in_feature, out_feature) for k in edge_type})
+        self.e_dense = nn.ModuleDict({k: nn.Linear(out_feature * 3, in_feature) for k in edge_type})
+        self.edge_type = edge_type
+        self.funcs = {}
+
+        for e_type in edge_type:
+            self.funcs[e_type] = (lambda x: {e_type: F.leaky_relu(self.dense[e_type](x.data['e']))},
+                                  lambda x: {'relation': torch.mean(x.mailbox[e_type], 1)})
+        self.e_funcs = {}
+        for e_type in edge_type:
+            self.e_funcs[e_type] = lambda x: {'e': self.e_dense[e_type](
+                torch.cat([x.data['e'], x.src['relation'][:, 0], x.dst['relation'][:, 1]], dim=-1))}
+
+    def forward(self, graph: dgl.DGLHeteroGraph):
+
+
+        graph.multi_update_all(self.funcs, 'stack')
+        for e_type in self.edge_type:
+            graph.apply_edges(self.e_funcs[e_type], etype=e_type)
+
+        return graph

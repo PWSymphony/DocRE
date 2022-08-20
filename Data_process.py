@@ -17,7 +17,7 @@ from sklearn.utils import shuffle
 # nlp = spacy.load("en_core_web_sm")
 
 raw_data_path = r"./data/raw"
-out_data_path = r"./data/with_graph"
+out_data_path = r"./data"
 train_annotated_file_name = path_join(raw_data_path, 'train_annotated.json')
 dev_file_name = path_join(raw_data_path, 'dev.json')
 test_file_name = path_join(raw_data_path, 'test.json')
@@ -65,8 +65,8 @@ def process(data_path, suffix=''):
     for doc_id, doc in tqdm(enumerate(ori_data), total=len(ori_data), desc=suffix, unit='doc'):
         sent_len = [len(sent) for sent in doc['sents']]
         sent_map = [0] + [sum(sent_len[:i + 1]) for i in range(len(sent_len))]
-        mention_start = set()
-        mention_end = set()
+        mention_start = {}
+        mention_end = {}
         ner_id = []
         mention_num = 0
         entity2sent = defaultdict(set)
@@ -74,8 +74,8 @@ def process(data_path, suffix=''):
             mention_num += (len(entity))
             ner_id.append(ner2id[entity[0]['type']])
             for mention in entity:
-                mention_start.add((mention['sent_id'], mention['pos'][0]))
-                mention_end.add((mention['sent_id'], mention['pos'][1] - 1))
+                mention_start[(mention['sent_id'], mention['pos'][0])] = ner2id[entity[0]['type']]
+                mention_end[(mention['sent_id'], mention['pos'][1] - 1)] = ner2id[entity[0]['type']]
 
                 mention['global_pos'] = [mention['pos'][0] + sent_map[mention['sent_id']],
                                          mention['pos'][1] + sent_map[mention['sent_id']]]
@@ -159,9 +159,10 @@ def process(data_path, suffix=''):
         relations = []
         relation_num = len(rel2id)
         ht_distance = []
-        g = defaultdict(list)  # 创建图
-        inter_index = []
-        intra_index = []
+        # g = {('entity', 'intra', 'entity'): [],
+        #      ('entity', 'inter', 'entity'): []}  # 创建图
+        # inter_index = []
+        # intra_index = []
         i = -1
         for j in range(len(doc['vertexSet'])):
             for k in range(len(doc['vertexSet'])):
@@ -183,19 +184,19 @@ def process(data_path, suffix=''):
                     relation[0] = 1
                 relations.append(relation)
 
-                if entity2sent[j] & entity2sent[k]:
-                    g[('entity', 'intra', 'entity')].append((j, k))  # 实体在同一个句子中出现过
-                    intra_index.append(i)
-                else:
-                    g[('entity', 'inter', 'entity')].append((j, k))  # 实体出现在不同的句子中
-                    inter_index.append(i)
+                # if entity2sent[j] & entity2sent[k]:
+                #     g[('entity', 'intra', 'entity')].append((j, k))  # 实体在同一个句子中出现过
+                #     intra_index.append(i)
+                # else:
+                #     g[('entity', 'inter', 'entity')].append((j, k))  # 实体出现在不同的句子中
+                #     inter_index.append(i)
 
         item['hts'] = torch.tensor(hts)
         item['relations'] = torch.tensor(relations)
         item['ht_distance'] = torch.tensor(ht_distance)
-        item['graph'] = dgl.heterograph(g)
-        item['intra_index'] = intra_index
-        item['inter_index'] = inter_index
+        # item['graph'] = dgl.heterograph(g)
+        # item['intra_index'] = intra_index
+        # item['inter_index'] = inter_index
 
         # ht_num = len(hts)
         # mention_ht, mention_ht_map = mention_pair(doc['vertexSet'], ht_num)

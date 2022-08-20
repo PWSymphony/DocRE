@@ -125,12 +125,10 @@ class ATLoss(nn.Module):
         ign_f1 = (2 * pr_x * pr_y / (pr_x + pr_y + 1e-20))
         self.test_result = []
         self.total_recall = 0
-        return dict(
-            all_f1=all_f1,
-            theta=0,
-            ign_f1=ign_f1,
-            ign_theta_f1=0
-        )
+        return dict(all_f1=all_f1,
+                    theta=0,
+                    ign_f1=ign_f1,
+                    ign_theta_f1=0)
 
 
 class BCELoss(nn.Module):
@@ -234,9 +232,29 @@ class BCELoss(nn.Module):
 
         self.test_result = []
         self.total_recall = 0
-        return dict(
-            all_f1=all_f1,
-            theta=theta,
-            ign_f1=ign_f1,
-            ign_theta_f1=f1_arr[ign_pos]
-        )
+        return dict(all_f1=all_f1,
+                    theta=theta,
+                    ign_f1=ign_f1,
+                    ign_theta_f1=f1_arr[ign_pos])
+
+
+class MultiLoss(ATLoss):
+    def __init__(self, config):
+        super(MultiLoss, self).__init__(config)
+        self.ATLoss = ATLoss(config)
+        self.BCELoss = nn.BCEWithLogitsLoss()
+        self.id2rel = json.load(open(path_join(config.data_path, 'raw', 'id2rel.json')))
+        self.total_recall = 0
+        self.test_result = []
+
+    def forward(self, pred, batch):
+        if isinstance(pred, tuple):
+            ent_pred, cls_pred = pred
+            _, loss1 = self.ATLoss(ent_pred, batch)
+            cls_label = batch['relations'].sum(1).bool().float()
+            loss2 = self.BCELoss(cls_pred, cls_label)
+            return ent_pred, loss1 + loss2
+
+        else:
+            pred, loss1 = self.ATLoss(pred, batch)
+            return pred, loss1

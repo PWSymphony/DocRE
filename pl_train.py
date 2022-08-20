@@ -23,7 +23,7 @@ from torch import optim
 from torch.utils.data import DataLoader, RandomSampler
 from transformers import BertModel, logging as transformer_log
 from Dataset import my_dataset, get_batch
-from loss import BCELoss, ATLoss
+from loss import BCELoss, ATLoss, MultiLoss
 from untils import all_accuracy, get_logger, Accuracy
 from transformers.optimization import get_linear_schedule_with_warmup
 
@@ -31,9 +31,9 @@ warnings.filterwarnings("ignore", category=PossibleUserWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 transformer_log.set_verbosity_error()
 
-LOSS_FN = {"ATL": ATLoss, "BCE": BCELoss}
+LOSS_FN = {"ATL": ATLoss, "BCE": BCELoss, "Multi": MultiLoss}
 MODELS = {'model': models.my_model, 'model1': models.my_model1, 'model2': models.my_model2,
-          'model3': models.my_model3}
+          'model3': models.my_model3, 'model4': models.my_model4}
 
 
 class PlModel(pl.LightningModule):
@@ -57,7 +57,7 @@ class PlModel(pl.LightningModule):
         return self.model(batch)
 
     def training_step(self, batch, batch_idx):
-        output = self.model(batch)
+        output = self.model(batch, is_train=True)
         pred, loss = self.loss_fn(pred=output, batch=batch)
         self.compute_output(output=pred, batch=batch)
         self.loss_list.append(loss)
@@ -122,7 +122,7 @@ class PlModel(pl.LightningModule):
     @staticmethod
     def add_model_specific_args(parent_parser):
         cur_parser = parent_parser.add_argument_group("Pl_Model")
-        cur_parser.add_argument("--loss_fn", type=str, default="ATL", choices=['BCE', "ATL"])
+        cur_parser.add_argument("--loss_fn", type=str, default="ATL", choices=['BCE', "ATL", "Multi"])
         cur_parser.add_argument("--lr", type=float, default=1e-4)
         cur_parser.add_argument("--pre_lr", type=float, default=5e-5)
         cur_parser.add_argument("--warm_ratio", type=float, default=0.06)

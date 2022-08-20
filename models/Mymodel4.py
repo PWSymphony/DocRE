@@ -4,9 +4,9 @@ from .long_BERT import process_long_input
 from .group_biLinear import group_biLinear
 
 
-class my_model(nn.Module):
+class my_model4(nn.Module):
     def __init__(self, config, PTM):
-        super(my_model, self).__init__()
+        super(my_model4, self).__init__()
         self.PTM = PTM.requires_grad_(bool(config.pre_lr))
         PTM_hidden_size = self.PTM.config.hidden_size
         block_size = 64
@@ -16,6 +16,7 @@ class my_model(nn.Module):
         self.hc_dense = nn.Linear(PTM_hidden_size, PTM_hidden_size)
         self.tc_dense = nn.Linear(PTM_hidden_size, PTM_hidden_size)
         self.clas = group_biLinear(PTM_hidden_size, config.relation_num, block_size)
+        self.cls_dense = nn.Linear(PTM_hidden_size, config.relation_num)
 
     @staticmethod
     def get_ht(context, mention_map, entity_map, hts, ht_mask):
@@ -56,7 +57,7 @@ class my_model(nn.Module):
         context_info = context_attention @ context
         return context_info * ht_mask
 
-    def forward(self, param):
+    def forward(self, param, is_train=False):
         input_id = param['input_id']
         input_mask = param['input_mask']
         hts = param['hts']
@@ -73,5 +74,10 @@ class my_model(nn.Module):
 
         h = torch.tanh(self.h_dense(h) + self.hc_dense(context_info))
         t = torch.tanh(self.t_dense(t) + self.tc_dense(context_info))
+        pred = self.clas(h, t)
 
-        return self.clas(h, t)
+        if is_train:
+            cls = self.cls_dense(context[:, 0, :])
+            return pred, cls
+        else:
+            return pred
