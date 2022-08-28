@@ -1,15 +1,16 @@
 import _pickle as pickle
+import zipfile
+from collections import defaultdict
+from itertools import accumulate, permutations
+from os.path import join as path_join
+
 import numpy as np
 import torch
 import ujson as json
-from os.path import join as path_join
-from collections import defaultdict
-import dgl
 from tqdm import tqdm
 from transformers import BertTokenizer
-import zipfile
+
 # import spacy
-from sklearn.utils import shuffle
 
 # import networkx as nx
 
@@ -54,7 +55,7 @@ token_end_id = tokenizer.sep_token_id
 
 def process(data_path, suffix=''):
     """
-    :param data_path: 原始数据
+    :param data_path: 原始数据地址
     :param suffix: 数据类别（测试集、训练集、验证集）
     """
     with open(data_path, 'r') as file:
@@ -64,12 +65,13 @@ def process(data_path, suffix=''):
 
     for doc_id, doc in tqdm(enumerate(ori_data), total=len(ori_data), desc=suffix, unit='doc'):
         sent_len = [len(sent) for sent in doc['sents']]
-        sent_map = [0] + [sum(sent_len[:i + 1]) for i in range(len(sent_len))]
+        sent_map = [0] + list(accumulate(sent_len))
         mention_start = {}
         mention_end = {}
         ner_id = []
         mention_num = 0
         entity2sent = defaultdict(set)
+
         for entity_id, entity in enumerate(doc['vertexSet']):
             mention_num += (len(entity))
             ner_id.append(ner2id[entity[0]['type']])
@@ -87,7 +89,6 @@ def process(data_path, suffix=''):
         for sent_id, sent in enumerate(doc['sents']):
             for word_id, word in enumerate(sent):
                 word_map.append(len(input_id))
-
                 token = tokenizer.tokenize(word)
                 if (sent_id, word_id) in mention_start:
                     token = ['*'] + token
@@ -107,14 +108,25 @@ def process(data_path, suffix=''):
         entity_first_appear = []
         mention_id = 0
         start = 0
+
+        entity_lack = []
+        lack_index = []
         for idx, entity in enumerate(doc['vertexSet']):
             entity_map[idx, start: start + len(entity)] = 1
+            lack_index.append(list(range(start, start + len(entity))))
             start += len(entity)
             entity_first_appear.append(entity[0]['global_pos'][0])
+            temp = torch.zeros((len(entity), mention_num))
+            temp[:, start: start + len(entity)] = 1
+            if len(entity) > 1:
+                for i, lack_i in enumerate(lack_index[-1]):
+                    temp[i, lack_i] = 0
+            entity_lack.append(temp)
             for mention in entity:
                 mention_map[mention_id, word_map[mention['global_pos'][0]]] = 1
                 entity_pos[word_map[mention['global_pos'][0]]: word_map[mention['global_pos'][1]]] = idx + 1
                 mention_id += 1
+        entity_lack = torch.cat(entity_lack, dim=0)
 
         item = {'index': doc_id,
                 'title': doc['title'],
@@ -124,7 +136,8 @@ def process(data_path, suffix=''):
                 'entity_num': len(doc['vertexSet']),
                 'mention_map': mention_map,
                 'entity_map': entity_map,
-                'entity_pos': entity_pos}
+                'entity_pos': entity_pos,
+                'entity_lack': entity_lack}
 
         new_labels = []
         labels = doc.get('labels', [])  # labels: [{'r': 'P159', 'h': 0, 't': 2, 'evidence': [0]}, ...]
@@ -159,37 +172,46 @@ def process(data_path, suffix=''):
         relations = []
         relation_num = len(rel2id)
         ht_distance = []
+
         # g = {('entity', 'intra', 'entity'): [],
         #      ('entity', 'inter', 'entity'): []}  # 创建图
         # inter_index = []
         # intra_index = []
+
+        lack_hts = []
+        lack_relations = []
+
         i = -1
-        for j in range(len(doc['vertexSet'])):
-            for k in range(len(doc['vertexSet'])):
-                if j == k:
-                    continue
-                i += 1
-                relation = [0] * relation_num
-                hts.append([j, k])
-                dis = entity_first_appear[k] - entity_first_appear[j]
-                if dis < 0:
-                    ht_distance.append(-int(-dis2idx[dis]))
-                else:
-                    ht_distance.append(int(dis2idx[dis]))
+        for j, k in permutations(range(len(doc['vertexSet'])), 2):
+            i += 1
+            relation = [0] * relation_num
+            hts.append([j, k])
 
-                if (j, k) in idx2label:
-                    for rel_id in idx2label[(j, k)]:
-                        relation[rel_id] = 1
-                else:
-                    relation[0] = 1
-                relations.append(relation)
+            lack_ht = []
+            for jj in lack_index[j]:
+                for kk in lack_index[k]:
+                    lack_ht.append([jj, kk])
 
-                # if entity2sent[j] & entity2sent[k]:
-                #     g[('entity', 'intra', 'entity')].append((j, k))  # 实体在同一个句子中出现过
-                #     intra_index.append(i)
-                # else:
-                #     g[('entity', 'inter', 'entity')].append((j, k))  # 实体出现在不同的句子中
-                #     inter_index.append(i)
+            dis = entity_first_appear[k] - entity_first_appear[j]
+            if dis < 0:
+                ht_distance.append(-int(-dis2idx[dis]))
+            else:
+                ht_distance.append(int(dis2idx[dis]))
+
+            if (j, k) in idx2label:
+                for rel_id in idx2label[(j, k)]:
+                    relation[rel_id] = 1
+            else:
+                relation[0] = 1
+            relations.append(relation)
+            lack_relations.extend([relation for _ in range(len(lack_ht))])
+            lack_hts.extend(lack_ht)
+            # if entity2sent[j] & entity2sent[k]:
+            #     g[('entity', 'intra', 'entity')].append((j, k))  # 实体在同一个句子中出现过
+            #     intra_index.append(i)
+            # else:
+            #     g[('entity', 'inter', 'entity')].append((j, k))  # 实体出现在不同的句子中
+            #     inter_index.append(i)
 
         item['hts'] = torch.tensor(hts)
         item['relations'] = torch.tensor(relations)
@@ -197,12 +219,14 @@ def process(data_path, suffix=''):
         # item['graph'] = dgl.heterograph(g)
         # item['intra_index'] = intra_index
         # item['inter_index'] = inter_index
+        item['lack_hts'] = torch.tensor(lack_hts)
+        item['lack_relations'] = torch.tensor(lack_relations)
 
         # ht_num = len(hts)
         # mention_ht, mention_ht_map = mention_pair(doc['vertexSet'], ht_num)
         # item['mention_ht'] = torch.tensor(mention_ht)
         # item['mention_ht_map'] = mention_ht_map
-        #
+
         # pairs, pair_labels = mention2mention(doc['vertexSet'])
         # pairs, pair_labels = shuffle(pairs, pair_labels)
         # item['pairs'] = torch.tensor(pairs)

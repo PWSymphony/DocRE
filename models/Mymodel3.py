@@ -3,7 +3,6 @@ import dgl.function as fn
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 from .group_biLinear import group_biLinear
 from .long_BERT import process_long_input
 
@@ -37,7 +36,7 @@ class my_model3(nn.Module):
         h = torch.stack([entity[i, hts[i, :, 0]] for i in range(batch_size)]) * ht_mask
         t = torch.stack([entity[i, hts[i, :, 1]] for i in range(batch_size)]) * ht_mask
 
-        return h, t
+        return h, t, entity
 
     @staticmethod
     def context_pooling(context, attention, entity_map, hts, ht_mask):
@@ -62,7 +61,7 @@ class my_model3(nn.Module):
         context_info = context_attention @ context
         return context_info * ht_mask
 
-    def forward(self, batch):
+    def forward(self, batch, *args, **kwargs):
         input_id = batch['input_id']
         input_mask = batch['input_mask']
         hts = batch['hts']
@@ -76,7 +75,7 @@ class my_model3(nn.Module):
         ht_mask = (hts.sum(-1) != 0).unsqueeze(-1)
 
         context, attention = process_long_input(self.PTM, input_id, input_mask, [101], [102])
-        h, t = self.get_ht(context, mention_map, entity_map, hts, ht_mask)
+        h, t, entity = self.get_ht(context, mention_map, entity_map, hts, ht_mask)
 
         entity_map = entity_map @ mention_map
         context_info = self.context_pooling(context, attention, entity_map, hts, ht_mask)
@@ -87,9 +86,12 @@ class my_model3(nn.Module):
 
         inter_feature = torch.cat([pred[i, inter_index[i]] for i in range(len(pred))], dim=0)
         intra_feature = torch.cat([pred[i, intra_index[i]] for i in range(len(pred))], dim=0)
+        entity_num = entity_map.sum(-1).bool().sum(-1)
+        node_feature = torch.cat([entity[i, :entity_num[i]] for i in range(len(pred))])
         graphs = dgl.batch(graphs)
         graphs.edges['inter'].data['e'] = inter_feature
         graphs.edges['intra'].data['e'] = intra_feature
+        graphs.nodes['entity'].data['n'] = node_feature
 
         graphs = self.g_model(graphs)
         graphs = dgl.unbatch(graphs)
@@ -98,7 +100,7 @@ class my_model3(nn.Module):
         for i in range(input_id.shape[0]):
             temp = torch.cat([graphs[i].edata['e'][('entity', 'inter', 'entity')],
                               graphs[i].edata['e'][('entity', 'intra', 'entity')]], dim=0)
-            index = torch.tensor(inter_index[i]+intra_index[i]).sort()[1]
+            index = torch.tensor(inter_index[i] + intra_index[i]).sort()[1]
             temp = temp[index]
             res.append(temp)
 
@@ -110,24 +112,39 @@ class my_model3(nn.Module):
 class GraphModel(nn.Module):
     def __init__(self, in_feature, out_feature, edge_type):
         super(GraphModel, self).__init__()
-        self.dense = nn.ModuleDict({k: nn.Linear(in_feature, out_feature) for k in edge_type})
-        self.e_dense = nn.ModuleDict({k: nn.Linear(out_feature * 3, in_feature) for k in edge_type})
+        self.bl = nn.Bilinear(768, out_feature, 1, bias=False)
+        self.bl1 = nn.Bilinear(out_feature * 2, out_feature * 2, out_feature)
         self.edge_type = edge_type
         self.funcs = {}
 
         for e_type in edge_type:
-            self.funcs[e_type] = (lambda x: {e_type: F.leaky_relu(self.dense[e_type](x.data['e']))},
-                                  lambda x: {'relation': torch.mean(x.mailbox[e_type], 1)})
+            self.funcs[e_type] = (fn.copy_e('e', 'm'),
+                                  lambda x: {'relation': self.node_reduce(x.data['n'], x.mailbox['m'], self.bl)})
         self.e_funcs = {}
         for e_type in edge_type:
-            self.e_funcs[e_type] = lambda x: {'e': self.e_dense[e_type](
-                torch.cat([x.data['e'], x.src['relation'][:, 0], x.dst['relation'][:, 1]], dim=-1))}
+            self.e_funcs[e_type] = lambda x: {'e': self.edge_fun(x)}
+
+    @staticmethod
+    def node_reduce(src, e_info, model):
+        src = src.unsqueeze(1).expand(src.shape[0], e_info.shape[1], src.shape[1])
+        score = F.softmax(model(src, e_info), dim=1)
+        e_info = (e_info * score).sum(1)
+        return e_info
+
+    def edge_fun(self, edge):
+        src = edge.src['relation']
+        src = src.reshape(src.shape[0], -1)
+
+        dst = edge.dst['relation']
+        dst = dst.reshape(dst.shape[0], -1)
+
+        new_rel = self.bl1(src, dst)
+        new_rel = edge.data['e'] + F.sigmoid(new_rel) * edge.data['e']
+        return {'e': new_rel}
 
     def forward(self, graph: dgl.DGLHeteroGraph):
-
-
         graph.multi_update_all(self.funcs, 'stack')
         for e_type in self.edge_type:
-            graph.apply_edges(self.e_funcs[e_type], etype=e_type)
+            graph.apply_edges(self.edge_fun, etype=e_type)
 
         return graph

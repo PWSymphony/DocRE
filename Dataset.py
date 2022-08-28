@@ -123,11 +123,29 @@ def get_batch(batch):
         res['inter_index'] = inter_index
         res['intra_index'] = intra_index
 
+    if 'lack_relations' in batch[0]:
+        max_lack_entity = max(len(b['entity_lack']) for b in batch)
+        max_lack_ht = max(len(b['lack_relations']) for b in batch)
+        entity_lack = torch.zeros((batch_size, max_lack_entity, max_mention_num))
+        lack_relations = torch.zeros((batch_size, max_lack_ht, relation_num))
+        lack_hts = torch.zeros((batch_size, max_lack_ht, 2))
+        lack_relation_mask = torch.zeros((batch_size, max_lack_ht))
+        for idx, b in enumerate(batch):
+            entity_lack[idx, :b['entity_lack'].shape[0], :b['entity_lack'].shape[1]] = b['entity_lack']
+            lack_relations[idx, :b['lack_relations'].shape[0], :b['lack_relations'].shape[1]] = b['lack_relations']
+            lack_hts[idx, :b['lack_hts'].shape[0], :b['lack_hts'].shape[1]] = b['lack_hts']
+            lack_relation_mask[idx, :b['lack_hts'].shape[0]] = 1
+
+        res['entity_lack'] = entity_lack
+        res['lack_relations'] = lack_relations
+        res['lack_hts'] = lack_hts
+        res['lack_relation_mask'] = lack_relation_mask
+
     return res
 
 
 if __name__ == "__main__":
-    data = my_dataset(r'E:\pythonProject\MYMODEL2\data\dev_uncased', is_zip=False)
+    data = my_dataset(r'data/dev_uncased', is_zip=True)
     dataloader = DataLoader(data, batch_size=2, collate_fn=get_batch)
     for d in dataloader:
         pass
