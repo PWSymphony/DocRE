@@ -1,4 +1,5 @@
 import torch
+import dgl
 import torch.nn as nn
 
 from .group_biLinear import group_biLinear
@@ -76,18 +77,21 @@ class my_model5(nn.Module):
         t = torch.tanh(self.t_dense(t) + self.tc_dense(context_info))
         bin_res = self.bin_clas(h, t)
 
-        graphs = create_graph(bin_res, hts)
+        graphs = create_graph(bin_res, hts, context_info)
 
         return bin_res
 
 
-def create_graph(bin_res, hts):
+def create_graph(bin_res, hts, context_info):
     batch_size = hts.shape[0]
-    entity_num = hts.max(-1).max(-1)
+    entity_num = (1 + hts.max(-1)[0].max(-1)[0]).tolist()
     edge_index = bin_res[..., 1] > bin_res[..., 0]
     edge_list = hts[edge_index]
-    edge_num = edge_index.sum(-1).cpu().tolist()
+    edge_num = edge_index.sum(-1).tolist()
     edge = edge_list.split(edge_num, dim=0)
+    graphs = []
     for i in range(batch_size):
-        cur_edge = edge[i][edge[i].sum(-1) != 0]
-    return []
+        cur_edge = edge[i][edge[i].sum(-1) != 0].t()
+        graph = dgl.graph((cur_edge[0], cur_edge[1]), num_nodes=entity_num[i])
+        graphs.append(graph)
+    return graphs
