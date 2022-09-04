@@ -4,28 +4,30 @@ Time    : 2022/7/29 20:31
 Author  : Wang
 """
 import argparse
-import logging
-import warnings
-import time
 import json
+import logging
+import time
+import warnings
+from os.path import join as path_join
+from typing import Union
+
+import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
-from typing import Union
-import models
-from os.path import join as path_join
-import pytorch_lightning as pl
 from pytorch_lightning import LightningDataModule, seed_everything
+from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers.base import LightningLoggerBase
 from pytorch_lightning.utilities.distributed import rank_zero_only
 from pytorch_lightning.utilities.warnings import PossibleUserWarning
-from pytorch_lightning.callbacks import ModelCheckpoint
 from torch import optim
 from torch.utils.data import DataLoader, RandomSampler
 from transformers import BertModel, logging as transformer_log
+from transformers.optimization import get_linear_schedule_with_warmup
+
+import models
 from Dataset import my_dataset, get_batch
 from loss import BCELoss, ATLoss, MultiLoss
 from untils import all_accuracy, get_logger, Accuracy
-from transformers.optimization import get_linear_schedule_with_warmup
 
 warnings.filterwarnings("ignore", category=PossibleUserWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -33,7 +35,7 @@ transformer_log.set_verbosity_error()
 
 LOSS_FN = {"ATL": ATLoss, "BCE": BCELoss, "Multi": MultiLoss}
 MODELS = {'model': models.my_model, 'model1': models.my_model1, 'model2': models.my_model2,
-          'model3': models.my_model3, 'model4': models.my_model4}
+          'model3': models.my_model3, 'model4': models.my_model4, 'model5': models.my_model5}
 
 
 class PlModel(pl.LightningModule):
@@ -81,13 +83,9 @@ class PlModel(pl.LightningModule):
         scheduler = get_linear_schedule_with_warmup(optimizer=optimizer,
                                                     num_warmup_steps=int(self.total_step * self.args.warm_ratio),
                                                     num_training_steps=self.total_step)
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": {
-                "scheduler": scheduler,
-                "interval": 'step'
-            }
-        }
+        return {"optimizer": optimizer,
+                "lr_scheduler": {"scheduler": scheduler,
+                                 "interval": 'step'}}
 
     def validation_step(self, batch, batch_idx):
         output = self.model(batch)
@@ -228,13 +226,11 @@ def main(args):
 
     callbacks = []
     if args.enable_checkpointing:
-        checkpoint_callback = ModelCheckpoint(
-            save_top_k=1,
-            monitor="all_f1",
-            mode="max",
-            dirpath=args.checkpoint_dir,
-            filename=args.save_name,
-        )
+        checkpoint_callback = ModelCheckpoint(save_top_k=1,
+                                              monitor="all_f1",
+                                              mode="max",
+                                              dirpath=args.checkpoint_dir,
+                                              filename=args.save_name, )
         callbacks.append(checkpoint_callback)
 
     trainer = pl.Trainer.from_argparse_args(args=args, logger=my_log, callbacks=callbacks,

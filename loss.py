@@ -254,7 +254,6 @@ class MultiLoss(ATLoss):
             cls_label = batch['relations'].sum(1).bool().float()
             loss2 = self.BCELoss(cls_pred, cls_label)
             return ent_pred, loss1 + loss2
-
         else:
             pred, loss1 = self.ATLoss(pred, batch)
             return pred, loss1
