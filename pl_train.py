@@ -117,19 +117,6 @@ class PlModel(pl.LightningModule):
             self.acc.add_NA(num=gold_na, correct_num=pred_na)
             self.acc.add_not_NA(num=gold_not_na, correct_num=pred_not_na)
 
-    @staticmethod
-    def add_model_specific_args(parent_parser):
-        cur_parser = parent_parser.add_argument_group("Pl_Model")
-        cur_parser.add_argument("--loss_fn", type=str, default="ATL", choices=['BCE', "ATL", "Multi"])
-        cur_parser.add_argument("--lr", type=float, default=1e-4)
-        cur_parser.add_argument("--pre_lr", type=float, default=5e-5)
-        cur_parser.add_argument("--warm_ratio", type=float, default=0.06)
-        cur_parser.add_argument("--relation_num", type=int, default=97)
-        cur_parser.add_argument("--result_dir", type=str, default='./result')
-        cur_parser.add_argument("--model", type=str, default='model')
-
-        return parent_parser
-
 
 class MyLogger(LightningLoggerBase):
     def __init__(self, args):
@@ -173,13 +160,6 @@ class MyLogger(LightningLoggerBase):
             m = str(metrics)
         self.base_log.info(m)
 
-    @staticmethod
-    def add_model_specific_args(parent_parser):
-        cur_parser = parent_parser.add_argument_group("Logger")
-        cur_parser.add_argument("--log_print", action='store_true')
-        cur_parser.add_argument("--log_path", type=str, default=r"./log/")
-        return parent_parser
-
 
 class DataModule(LightningDataModule):
     def __init__(self, args):
@@ -203,16 +183,6 @@ class DataModule(LightningDataModule):
         val_dataloader = DataLoader(self.val_dataset, batch_size=self.batch_size * 2, collate_fn=get_batch,
                                     num_workers=self.num_workers)
         return val_dataloader
-
-    @staticmethod
-    def add_model_specific_args(parent_parser):
-        cur_parser = parent_parser.add_argument_group("DataModule")
-        cur_parser.add_argument("--data_path", type=str, default='./data')
-        cur_parser.add_argument("--batch_size", type=int, default=1)
-        cur_parser.add_argument("--num_workers", type=int, default=0)
-        cur_parser.add_argument("--is_zip", action="store_true")
-
-        return parent_parser
 
 
 def main(args):
@@ -252,12 +222,25 @@ if __name__ == "__main__":
     parser.add_argument("--enable_progress_bar", action='store_true')
     parser.add_argument("--gradient_clip_val", type=int, default=1)
 
+    parser.add_argument("--bert_type", type=str, choices=['cased', 'uncased'], default='uncased')
+    parser.add_argument("--loss_fn", type=str, default="ATL")
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--pre_lr", type=float, default=5e-5)
+    parser.add_argument("--warm_ratio", type=float, default=0.06)
+    parser.add_argument("--relation_num", type=int, default=97)
+    parser.add_argument("--result_dir", type=str, default='./result')
+    parser.add_argument("--model", type=str, default='model')
+
+    parser.add_argument("--data_path", type=str, default='./data')
+    parser.add_argument("--batch_size", type=int, default=1)
+    parser.add_argument("--num_workers", type=int, default=0)
+    parser.add_argument("--is_zip", action="store_true")
+
+    parser.add_argument("--log_print", action='store_true')
+    parser.add_argument("--log_path", type=str, default=r"./log/")
     parser.add_argument("--checkpoint_dir", type=str, default='./checkpoint')
     parser.add_argument("--save_name", type=str, default='test')
-    parser.add_argument("--bert_type", type=str, choices=['cased', 'uncased'], default='uncased')
-    parser = DataModule.add_model_specific_args(parser)
-    parser = MyLogger.add_model_specific_args(parser)
-    parser = PlModel.add_model_specific_args(parser)
+
     train_args = parser.parse_args()
 
     main(train_args)

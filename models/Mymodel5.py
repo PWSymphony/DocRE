@@ -71,11 +71,10 @@ class my_model5(nn.Module):
         h = torch.tanh(self.h_dense(h) + self.hc_dense(context_info))
         t = torch.tanh(self.t_dense(t) + self.tc_dense(context_info))
         bin_res = self.bin_clas(h, t)
-        graphs, node_feature, edge_feature, edge_num = create_graph(bin_res, hts, context_info, entity)
+        graphs, node_feature, edge_feature, edge_num, edge_index = create_graph(bin_res, hts, context_info, entity)
         graphs = dgl.batch(graphs)
         graphs = dgl.add_self_loop(graphs)
-        node_feature, edge_feature = self.EGATConv(graphs, node_feature,
-                                                   torch.cat([edge_feature, node_feature], dim=0))
+        node_feature, edge_feature = self.EGATConv(graphs, node_feature, torch.cat([edge_feature, node_feature], dim=0))
         return bin_res
 
 
@@ -96,4 +95,7 @@ def create_graph(bin_res, hts, context_info, entity):
         node_feature.append(entity[i, :entity_num[i]])
         edge_feature.append(context_info[i][edge_index[i]][:cur_edge.shape[1]])
         graphs.append(graph)
-    return graphs, torch.cat(node_feature, dim=0), torch.cat(edge_feature, dim=0), edge_num
+    return graphs, torch.cat(node_feature, dim=0), torch.cat(edge_feature, dim=0), edge_num, edge_index
+
+# def get_res(edge_feature, edge_index, edge_num):
+
