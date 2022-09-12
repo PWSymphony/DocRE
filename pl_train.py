@@ -6,6 +6,7 @@ Author  : Wang
 import argparse
 import json
 import logging
+import platform
 import time
 import warnings
 from os.path import join as path_join
@@ -39,7 +40,7 @@ MODELS = {'model': models.my_model, 'model1': models.my_model1, 'model2': models
 
 
 class PlModel(pl.LightningModule):
-    def __init__(self, args: Union[argparse.Namespace, argparse.ArgumentParser], steps):
+    def __init__(self, args: Union[argparse.Namespace, argparse.ArgumentParser]):
         super(PlModel, self).__init__()
         self.args = args
         bert_name = f'bert-base-{args.bert_type}'
@@ -48,7 +49,6 @@ class PlModel(pl.LightningModule):
         self.loss_fn = LOSS_FN[args.loss_fn](args)
         self.loss_list = []
         self.acc = all_accuracy()
-        self.total_step = steps
         self.save_hyperparameters(logger=True)
 
         self.acc_NA = Accuracy()
@@ -81,8 +81,8 @@ class PlModel(pl.LightningModule):
         optimizer = optim.AdamW([{'params': PLM, 'lr': self.args.pre_lr},
                                  {'params': not_PLM, 'lr': self.args.lr}])
         scheduler = get_linear_schedule_with_warmup(optimizer=optimizer,
-                                                    num_warmup_steps=int(self.total_step * self.args.warm_ratio),
-                                                    num_training_steps=self.total_step)
+                                                    num_warmup_steps=int(self.args.total_step * self.args.warm_ratio),
+                                                    num_training_steps=self.args.total_step)
         return {"optimizer": optimizer,
                 "lr_scheduler": {"scheduler": scheduler,
                                  "interval": 'step'}}
@@ -125,7 +125,7 @@ class MyLogger(LightningLoggerBase):
         pl_logger = logging.getLogger('pytorch_lightning')
         pl_logger.addHandler(logging.FileHandler(log_path + '.txt'))
 
-        self.base_log = get_logger(log_path, is_print=args.log_print)
+        self.base_log = get_logger(log_path, is_print=args.print_log)
 
     @property
     def name(self):
@@ -165,7 +165,7 @@ class DataModule(LightningDataModule):
     def __init__(self, args):
         super(DataModule, self).__init__()
         self.batch_size = args.batch_size
-        self.num_workers = args.num_workers
+        self.num_workers = 4 if args.accelerator == 'gpu' and platform.system() == 'Linux' else 0
 
         train_data_path = f'{args.data_path}/train_{args.bert_type}'
         valid_data_path = f'{args.data_path}/dev_{args.bert_type}'
@@ -186,25 +186,36 @@ class DataModule(LightningDataModule):
 
 
 def main(args):
-    seed_everything(args.seed)
+    # ========================================== 检查参数 ==========================================
+    if not torch.cuda.is_available():
+        args.accelerator = 'cpu'
+
+    # ========================================== 获取数据 ==========================================
     dm = DataModule(args)
-    total_step = len(dm.train_dataloader()) * args.max_epochs // len(args.devices)
-    strategy = 'ddp' if len(args.devices) > 1 else None
 
-    model = PlModel(args, total_step)
+    # ========================================== 配置参数 ==========================================
+    seed_everything(args.seed)
+    total_step = (len(dm.train_dataloader()) * args.max_epochs)
+    strategy = None
+    if args.accelerator == 'cpu':
+        args.devices = None
+        args.precision = 32
+    elif args.accelerator == 'gpu' and len(args.devices) > 1:
+        total_step //= len(args.devices)
+        strategy = 'ddp'
+
+    args.total_step = total_step
+
     my_log = MyLogger(args)
-
     callbacks = []
     if args.enable_checkpointing:
-        checkpoint_callback = ModelCheckpoint(save_top_k=1,
-                                              monitor="all_f1",
-                                              mode="max",
-                                              dirpath=args.checkpoint_dir,
-                                              filename=args.save_name, )
+        checkpoint_callback = ModelCheckpoint(save_top_k=1, monitor="all_f1", mode="max", dirpath=args.checkpoint_dir,
+                                              filename=args.save_name)
         callbacks.append(checkpoint_callback)
 
-    trainer = pl.Trainer.from_argparse_args(args=args, logger=my_log, callbacks=callbacks,
-                                            strategy=strategy)
+    # ========================================== 开始训练 ==========================================
+    model = PlModel(args)
+    trainer = pl.Trainer.from_argparse_args(args=args, logger=my_log, callbacks=callbacks, strategy=strategy)
     trainer.fit(model=model, datamodule=dm)
     # trainer.validate(model=model, datamodule=dm, ckpt_path=args.checkpoint_dir + '/ATLOP.ckpt')
 
@@ -233,10 +244,11 @@ if __name__ == "__main__":
 
     parser.add_argument("--data_path", type=str, default='./data')
     parser.add_argument("--batch_size", type=int, default=1)
+    parser.add_argument("--total_step", type=int, default=-1)
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--is_zip", action="store_true")
 
-    parser.add_argument("--log_print", action='store_true')
+    parser.add_argument("--print_log", action='store_true')
     parser.add_argument("--log_path", type=str, default=r"./log/")
     parser.add_argument("--checkpoint_dir", type=str, default='./checkpoint')
     parser.add_argument("--save_name", type=str, default='test')
