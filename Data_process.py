@@ -30,7 +30,11 @@ with open(path_join(raw_data_path, 'rel2id.json')) as f:
     rel2id = json.load(f)
 
 with open(path_join(raw_data_path, 'ner2id.json')) as f:
+    # d = ['β', 'γ', 'δ', 'ε', 'ζ', 'θ', 'κ']
+    # d = ['[1]', '[2]', '[3]', '[4]', '[5]', '[6]', '[7]']
     ner2id = json.load(f)
+    # for index, k in enumerate(ner2id.keys()):
+    #     ner2id[k] = d[index]
 
 dis2idx = np.zeros(1024, dtype='int64')
 dis2idx[1] = 1
@@ -62,8 +66,11 @@ def process(data_path, suffix=''):
         ori_data = json.load(file)
 
     data = []
-
+    skip = suffix in ('train', 'dev')
     for doc_id, doc in tqdm(enumerate(ori_data), total=len(ori_data), desc=suffix, unit='doc'):
+        if skip and doc['labels'] == []:
+            continue
+
         sent_len = [len(sent) for sent in doc['sents']]
         sent_map = [0] + list(accumulate(sent_len))
         mention_start = {}
@@ -74,7 +81,7 @@ def process(data_path, suffix=''):
 
         for entity_id, entity in enumerate(doc['vertexSet']):
             mention_num += (len(entity))
-            ner_id.append(ner2id[entity[0]['type']])
+            ner_id.append(int(ner2id[entity[0]['type']]))
             for mention in entity:
                 mention_start[(mention['sent_id'], mention['pos'][0])] = ner2id[entity[0]['type']]
                 mention_end[(mention['sent_id'], mention['pos'][1] - 1)] = ner2id[entity[0]['type']]
@@ -102,7 +109,7 @@ def process(data_path, suffix=''):
         input_id.append(token_end_id)
         word_map.append(len(input_id))  # 加上了最后的 [102]
 
-        mention_map = torch.zeros([mention_num, len(input_id)])
+        mention_map = []
         entity_map = torch.zeros((len(doc['vertexSet']), mention_num))
         entity_pos = torch.zeros([len(input_id)])
         entity_first_appear = []
@@ -123,7 +130,7 @@ def process(data_path, suffix=''):
                     temp[i, lack_i] = 0
             entity_lack.append(temp)
             for mention in entity:
-                mention_map[mention_id, word_map[mention['global_pos'][0]]] = 1
+                mention_map.append(word_map[mention['global_pos'][0]])
                 entity_pos[word_map[mention['global_pos'][0]]: word_map[mention['global_pos'][1]]] = idx + 1
                 mention_id += 1
         entity_lack = torch.cat(entity_lack, dim=0)
@@ -136,8 +143,7 @@ def process(data_path, suffix=''):
                 'entity_num': len(doc['vertexSet']),
                 'mention_map': mention_map,
                 'entity_map': entity_map,
-                'entity_pos': entity_pos,
-                'entity_lack': entity_lack}
+                'entity_pos': entity_pos}
 
         new_labels = []
         labels = doc.get('labels', [])  # labels: [{'r': 'P159', 'h': 0, 't': 2, 'evidence': [0]}, ...]
@@ -213,14 +219,16 @@ def process(data_path, suffix=''):
             #     g[('entity', 'inter', 'entity')].append((j, k))  # 实体出现在不同的句子中
             #     inter_index.append(i)
 
-        item['hts'] = torch.tensor(hts)
+        # item['hts'] = torch.tensor(hts)
         item['relations'] = torch.tensor(relations)
         item['ht_distance'] = torch.tensor(ht_distance)
         # item['graph'] = dgl.heterograph(g)
         # item['intra_index'] = intra_index
         # item['inter_index'] = inter_index
-        item['lack_hts'] = torch.tensor(lack_hts)
-        item['lack_relations'] = torch.tensor(lack_relations)
+
+        # item['lack_hts'] = torch.tensor(lack_hts)
+        # item['lack_relations'] = torch.tensor(lack_relations)
+        # item['entity_lack'] = entity_lack
 
         # ht_num = len(hts)
         # mention_ht, mention_ht_map = mention_pair(doc['vertexSet'], ht_num)
@@ -239,6 +247,7 @@ def process(data_path, suffix=''):
     data = pickle.dumps(data)
     zip_file = zipfile.ZipFile(out_dir + '.zip', mode='w', compression=zipfile.ZIP_LZMA)
     zip_file.writestr(f'{suffix}_{data_type}' + '.data', data)
+    print(suffix, f': {len(data) / 1024 / 1024 :.2f}MB')
 
 
 def mention_pair(entities, ht_num):

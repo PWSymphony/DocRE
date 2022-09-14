@@ -1,6 +1,7 @@
 import json
-import numpy as np
 from os.path import join as path_join
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -16,7 +17,7 @@ class ATLoss(nn.Module):
         self.test_result = []
 
     @staticmethod
-    def forward(pred, batch):
+    def forward(pred, **batch):
         labels = batch['relations']
         label_mask = batch['relation_mask']
 
@@ -247,13 +248,74 @@ class MultiLoss(ATLoss):
         self.total_recall = 0
         self.test_result = []
 
-    def forward(self, pred, batch):
+    def forward(self, pred, **batch):
         if isinstance(pred, tuple):
             ent_pred, cls_pred = pred
-            _, loss1 = self.ATLoss(ent_pred, batch)
+            _, loss1 = self.ATLoss(ent_pred, **batch)
             cls_label = batch['relations'].sum(1).bool().float()
+            cls_label[:, 0] = 0
             loss2 = self.BCELoss(cls_pred, cls_label)
             return ent_pred, loss1 + loss2
+
         else:
-            pred, loss1 = self.ATLoss(pred, batch)
+            pred, loss1 = self.ATLoss(pred, **batch)
             return pred, loss1
+
+
+class LackLoss(ATLoss):
+    def __init__(self, config):
+        super(LackLoss, self).__init__(config)
+        self.ATLoss = ATLoss(config)
+        self.id2rel = json.load(open(path_join(config.data_path, 'raw', 'id2rel.json')))
+
+    def forward(self, pred, **batch):
+        if isinstance(pred, tuple):
+            all_pred, lack_pred = pred
+            all_pred, loss1 = self.ATLoss(all_pred, **batch)
+            _, loss2 = self.ATLoss(lack_pred, relations=batch['lack_relations'],
+                                   relation_mask=batch['lack_relation_mask'])
+            return all_pred, loss1 + 0.1 * loss2
+
+        else:
+            pred, loss1 = self.ATLoss(pred, **batch)
+            return pred, loss1
+
+
+class CELoss(nn.Module):
+    def __init__(self, config):
+        super(CELoss, self).__init__()
+        self.loss_fn = nn.CrossEntropyLoss(reduction="none")
+        self.gold_num = 0
+        self.pred_num = 0
+        self.pred_true = 0
+
+    def forward(self, pred, **batch):
+        relations = batch['relations'].reshape(-1, 97)
+        relation_mask = batch['relation_mask'].reshape(-1)
+        # label = torch.cat([relations[..., 0].bool(), relations[..., 1:].sum(-1).bool()], dim=-1)
+        label = relations[..., 1:].sum(-1).bool().long()
+        pred = pred.reshape(-1, pred.shape[-1])
+        loss = self.loss_fn(pred, label)
+        loss = (loss * relation_mask).sum() / relation_mask.sum()
+
+        with torch.no_grad():
+            new_pred = pred.argmax(dim=-1).bool()
+            self.gold_num += (label & relation_mask).sum()
+            self.pred_num += (new_pred & relation_mask).sum()
+            self.pred_true += (new_pred & label & relation_mask).sum()
+
+        return pred, loss
+
+    def push_result(self, *args, **kwargs):
+        pass
+
+    def get_result(self, *args, **kwargs):
+        self.pred_num = self.pred_num if self.pred_num else 1
+        self.gold_num = self.gold_num if self.gold_num else 1
+        recall = self.pred_true / self.gold_num
+        precision = self.pred_true / self.pred_num
+        f1 = (2 * recall * precision) / (recall + precision)
+        return dict(all_f1=f1,
+                    theta=0,
+                    ign_f1=recall,
+                    ign_theta_f1=precision)

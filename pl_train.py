@@ -27,7 +27,7 @@ from transformers.optimization import get_linear_schedule_with_warmup
 
 import models
 from Dataset import my_dataset, get_batch
-from loss import BCELoss, ATLoss, MultiLoss
+from loss import BCELoss, ATLoss, MultiLoss, CELoss
 from untils import all_accuracy, get_logger, Accuracy
 
 warnings.filterwarnings("ignore", category=PossibleUserWarning)
@@ -47,6 +47,7 @@ class PlModel(pl.LightningModule):
         bert = BertModel.from_pretrained(bert_name)
         self.model = MODELS[args.model](args, bert)
         self.loss_fn = LOSS_FN[args.loss_fn](args)
+        self.loss_fn_2 = CELoss(args)
         self.loss_list = []
         self.acc = all_accuracy()
         self.save_hyperparameters(logger=True)
@@ -59,17 +60,18 @@ class PlModel(pl.LightningModule):
         return self.model(batch)
 
     def training_step(self, batch, batch_idx):
-        output = self.model(batch, is_train=True)
-        pred, loss = self.loss_fn(pred=output, batch=batch)
+        bin_res, relation_res = self.model(batch, is_train=True)
+        _, loss1 = self.loss_fn_2(bin_res, **batch)
+        pred, loss2 = self.loss_fn(pred=relation_res, **batch)
         self.compute_output(output=pred, batch=batch)
-        self.loss_list.append(loss)
+        self.loss_list.append(loss1 + loss2)
         log_dict = self.acc.get()
         log_dict['info'] = float(0)
         log_dict['loss'] = torch.stack(self.loss_list).mean()
         log_dict['lr'] = self.lr_schedulers().get_last_lr()[0]
         log_dict['epoch'] = float(self.current_epoch)
         self.log_dict(log_dict, prog_bar=False)
-        return loss
+        return loss1 + loss2
 
     def training_epoch_end(self, outputs):
         self.acc.clear()
@@ -88,15 +90,15 @@ class PlModel(pl.LightningModule):
                                  "interval": 'step'}}
 
     def validation_step(self, batch, batch_idx):
-        output = self.model(batch)
-        self.loss_fn.push_result(output, batch)
-        pred, loss = self.loss_fn(pred=output, batch=batch)
+        bin_res, relation_res = self.model(batch)
+        self.loss_fn.push_result(relation_res, batch)
+        pred, loss = self.loss_fn(pred=relation_res, **batch)
         return loss
 
     def validation_epoch_end(self, validation_step_outputs):
-        loss = sum(validation_step_outputs) / len(validation_step_outputs)
+        # loss = sum(validation_step_outputs) / len(validation_step_outputs)
         dev_result = self.loss_fn.get_result()
-        dev_result['loss'] = round(float(loss), 6)
+        # dev_result['loss'] = round(float(loss), 6)
         dev_result['info'] = float(1)
         self.log_dict(dev_result, prog_bar=False)
         return
@@ -225,7 +227,7 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--accelerator", type=str, default='gpu')
     parser.add_argument("--accumulate_grad_batches", type=int, default=1)
-    parser.add_argument("--devices", type=int, nargs='+', default=[0])
+    parser.add_argument("--devices", type=int, nargs='+', default=[7])
     parser.add_argument("--max_epochs", type=int, default=30)
     parser.add_argument("--precision", type=int, default=16)
     parser.add_argument("--log_every_n_steps", type=int, default=200)
@@ -243,7 +245,7 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, default='model')
 
     parser.add_argument("--data_path", type=str, default='./data')
-    parser.add_argument("--batch_size", type=int, default=1)
+    parser.add_argument("--batch_size", type=int, default=2)
     parser.add_argument("--total_step", type=int, default=-1)
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--is_zip", action="store_true")
