@@ -57,7 +57,6 @@ def get_batch(batch):
     indexes = []
     titles = []
     all_label2in_train = []
-    all_test_idxs = []
 
     for idx, b in enumerate(batch):
         input_ids[idx, :len(b['input_id'])] = b['input_id']
@@ -67,7 +66,7 @@ def get_batch(batch):
         # entity_pos[idx, :len(b['entity_pos'])] = b['entity_pos']
         # entity_ner[idx, :len(b['ner_id'])] = b['ner_id']
         # ht_pair_dis[idx, :len(b['ht_distance'])] = b['ht_distance']
-        temp_ht = np.asarray(list(permutations(range(b['entity_num']), 2)))
+        temp_ht = torch.tensor(list(permutations(range(b['entity_num']), 2)), dtype=torch.long)
         hts.append(temp_ht.T)
 
         relations.append(b['relations'].float())
@@ -76,7 +75,6 @@ def get_batch(batch):
         # for test
         titles.append(b['title'])
         indexes.append(b['index'])
-        all_test_idxs.append(temp_ht.tolist())
         label2in_train = {}
         labels = b['labels']
         for label in labels:
@@ -91,14 +89,15 @@ def get_batch(batch):
                # entity_pos= entity_pos,
                # ht_pair_dis=ht_pair_dis,
                hts=hts,
-               relations=pad_sequence(relations, batch_first=True),
-               relation_mask=pad_sequence(relation_mask, batch_first=True),
+               # relations=pad_sequence(relations, batch_first=True),
+               # relation_mask=pad_sequence(relation_mask, batch_first=True),
+               relations=torch.cat(relations, dim=0),
+               # relation_mask=pad_sequence(relation_mask, batch_first=True),
 
                # test
                titles=titles,
                indexes=indexes,
-               labels=all_label2in_train,
-               all_test_idxs=all_test_idxs)
+               labels=all_label2in_train)
 
     if graphs:
         res['graphs'] = graphs

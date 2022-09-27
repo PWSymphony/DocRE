@@ -1,16 +1,32 @@
 import torch
 import torch.nn as nn
 from .long_BERT import process_long_input
-from .group_biLinear import group_biLinear
 from torch.nn.utils.rnn import pad_sequence
 from functools import partial
 
 ad_sequence = partial(pad_sequence, batch_first=True)
 
+class group_biLinear(nn.Module):
+    def __init__(self, in_feature, out_feature, block_size):
+        super(group_biLinear, self).__init__()
+        assert in_feature % block_size == 0
+        self.linear = nn.Linear(in_feature * block_size, out_feature)
+        self.block_size = block_size
+        self.head = in_feature // block_size
 
-class my_model(nn.Module):
+    def forward(self, input1, input2):
+        input1 = input1.reshape(-1, self.head, self.block_size)
+        input2 = input2.reshape(-1, self.head, self.block_size)
+
+        output = input1.unsqueeze(-1) * input2.unsqueeze(-2)
+        output = output.reshape(output.shape[0], -1)
+
+        return self.linear(output)
+
+
+class ATLOP(nn.Module):
     def __init__(self, config, PTM):
-        super(my_model, self).__init__()
+        super(ATLOP, self).__init__()
         self.PTM = PTM.requires_grad_(bool(config.pre_lr))
         PTM_hidden_size = self.PTM.config.hidden_size
         block_size = 64
@@ -36,7 +52,8 @@ class my_model(nn.Module):
             h.append(cur_entity[hts[i][0], :])
             t.append(cur_entity[hts[i][1], :])
 
-        return pad_sequence(h), pad_sequence(t), entity
+        # return pad_sequence(h), pad_sequence(t), entity
+        return torch.cat(h, dim=0), torch.cat(t, dim=0), entity
 
     @staticmethod
     def context_pooling(context, attention, mention_map, entity_map, hts):
@@ -53,7 +70,8 @@ class my_model(nn.Module):
                                           (torch.sum(context_attention, dim=-1, keepdim=True) + 1e-20))
             context_info.append(context_attention @ context[i])
 
-        return pad_sequence(context_info)
+        # return pad_sequence(context_info)
+        return torch.cat(context_info, dim=0)
 
     def forward(self, param):
         input_id = param['input_id']

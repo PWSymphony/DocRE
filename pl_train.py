@@ -36,7 +36,8 @@ transformer_log.set_verbosity_error()
 
 LOSS_FN = {"ATL": ATLoss, "BCE": BCELoss, "Multi": MultiLoss}
 MODELS = {'model': models.my_model, 'model1': models.my_model1, 'model2': models.my_model2,
-          'model3': models.my_model3, 'model4': models.my_model4, 'model5': models.my_model5}
+          'model3': models.my_model3, 'model4': models.my_model4, 'model5': models.my_model5,
+          'model6': models.my_model6}
 
 
 class PlModel(pl.LightningModule):
@@ -81,11 +82,16 @@ class PlModel(pl.LightningModule):
         self.loss_list.clear()
 
     def configure_optimizers(self):
-        no_decay = {"bias", "LayerNorm.weight"}
+        # no_decay = {"bias", "LayerNorm.weight"}
+        # optimizer_grouped_parameters = [{
+        #     "params": [p for n, p in self.named_parameters() if not any(nd in n for nd in no_decay)],
+        #     "weight_decay": self.args.weight_decay, "lr": self.args.lr},
+        #     {"params": [p for n, p in self.named_parameters() if any(nd in n for nd in no_decay)],
+        #      "weight_decay": 0.0, "lr": self.args.pre_lr}]
         optimizer_grouped_parameters = [{
-            "params": [p for n, p in self.named_parameters() if not any(nd in n for nd in no_decay)],
+            "params": [p for n, p in self.named_parameters() if p.requires_grad and ('PTM' not in n)],
             "weight_decay": self.args.weight_decay, "lr": self.args.lr},
-            {"params": [p for n, p in self.named_parameters() if any(nd in n for nd in no_decay)],
+            {"params": [p for n, p in self.named_parameters() if p.requires_grad and ('PTM' in n)],
              "weight_decay": 0.0, "lr": self.args.pre_lr}]
         optimizer = optim.AdamW(optimizer_grouped_parameters)
         scheduler = get_linear_schedule_with_warmup(optimizer=optimizer,
@@ -110,14 +116,13 @@ class PlModel(pl.LightningModule):
     def compute_output(self, output, batch):
         with torch.no_grad():
             relations = batch['relations'].bool()
-            relation_mask = batch['relation_mask'].unsqueeze(2)
             top_index = F.one_hot(torch.argmax(output, dim=-1),
                                   num_classes=self.args.relation_num).bool()
-            result = top_index & relations & relation_mask
+            result = top_index & relations
 
             # gold.sum(0).sum(0) 一对实体有多种关系会被计算为多对实体
             gold_na = relations[..., 0].sum()
-            gold_not_na = relations[..., 1:].nonzero().shape[0]  # 先求和，在将不为0的改为1，再次求和
+            gold_not_na = relations[..., 1:].sum(-1).nonzero().shape[0]  # 先求和，在将不为0的改为1，再次求和
             pred_na = result[..., 0].sum()
             pred_not_na = result[..., 1:].sum()
             self.acc.add_NA(num=gold_na, correct_num=pred_na)
@@ -223,15 +228,16 @@ def main(args):
 
     # ========================================== 开始训练 ==========================================
     model = PlModel(args)
-    trainer = pl.Trainer.from_argparse_args(args=args, logger=my_log, callbacks=callbacks, strategy=strategy)
+    trainer = pl.Trainer.from_argparse_args(args=args, logger=my_log, callbacks=callbacks, strategy=strategy,
+                                            num_sanity_val_steps=0)
     trainer.fit(model=model, datamodule=dm)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--seed", type=int, default=4027)
     parser.add_argument("--accelerator", type=str, default='gpu')
-    parser.add_argument("--accumulate_grad_batches", type=int, default=4)
+    parser.add_argument("--accumulate_grad_batches", type=int, default=1)
     parser.add_argument("--devices", type=int, nargs='+', default=[0])
     parser.add_argument("--max_epochs", type=int, default=30)
     parser.add_argument("--precision", type=int, default=16)
