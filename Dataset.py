@@ -32,11 +32,6 @@ def get_batch(batch):
     batch_size = len(batch)
     ner_len = max(len(b['ner_id']) for b in batch)
     # max_ht_num = max(len(b['hts']) for b in batch)
-    relation_num = batch[0]['relations'].shape[-1]
-    max_mention_num = max(b['mention_num'] for b in batch)
-    max_entity_num = max(b['entity_num'] for b in batch)
-    # mention_ht_num = max(b['mention_ht'].shape[0] for b in batch)
-    # mention_pair_num = max(b['pairs'].shape[0] for b in batch)
 
     input_ids = torch.zeros(batch_size, max_len, dtype=torch.long)
     input_mask = torch.zeros(batch_size, max_len, dtype=torch.float)
@@ -47,14 +42,6 @@ def get_batch(batch):
     # ht_pair_dis = torch.zeros(batch_size, max_ht_num, dtype=torch.long)
     hts = []
 
-    # mention_ht = torch.zeros(batch_size, mention_ht_num, 2, dtype=torch.int64)
-    # mention_ht_map = torch.zeros(batch_size, max_ht_num, mention_ht_num, dtype=torch.float32)
-    # mention_pair = torch.zeros(batch_size, mention_pair_num, 2, dtype=torch.int64)
-    # mention_pair_label = torch.zeros(batch_size, mention_pair_num, 2, dtype=torch.float32)
-    # mention_pair_mask = torch.zeros(batch_size, mention_pair_num, dtype=torch.bool)
-
-    # relations = torch.zeros(batch_size, max_ht_num, relation_num, dtype=torch.float32)
-    # relation_mask = torch.zeros(batch_size, max_ht_num, dtype=torch.bool)
     relations = []
     relation_mask = []
 
@@ -83,14 +70,6 @@ def get_batch(batch):
         temp_ht = np.asarray(list(permutations(range(b['entity_num']), 2)))
         hts.append(temp_ht.T)
 
-        # mention_ht[idx, :b['mention_ht'].shape[0]] = b['mention_ht']
-        # mention_ht_map[idx, :b['mention_ht_map'].shape[0], :b['mention_ht_map'].shape[1]] = b['mention_ht_map']
-        # mention_pair[idx, :b['pairs'].shape[0]] = b['pairs']
-        # mention_pair_label[idx, :b['pair_labels'].shape[0]] = b['pair_labels']
-        # mention_pair_mask[idx, :b['pair_labels'].shape[0]] = 1
-
-        # relations[idx, :len(b['relations'])] = b['relations']
-        # relation_mask[idx, :len(b['relations'])] = 1
         relations.append(b['relations'].float())
         relation_mask.append(torch.ones(b['relations'].shape[0], dtype=torch.bool))
 
@@ -112,11 +91,6 @@ def get_batch(batch):
                # entity_pos= entity_pos,
                # ht_pair_dis=ht_pair_dis,
                hts=hts,
-               # mention_ht=mention_ht,
-               # mention_ht_map=mention_ht_map,
-               # mention_pair=mention_pair,
-               # mention_pair_label=mention_pair_label,
-               # mention_pair_mask=mention_pair_mask,
                relations=pad_sequence(relations, batch_first=True),
                relation_mask=pad_sequence(relation_mask, batch_first=True),
 
@@ -130,24 +104,6 @@ def get_batch(batch):
         res['graphs'] = graphs
         res['inter_index'] = inter_index
         res['intra_index'] = intra_index
-
-    if 'lack_relations' in batch[0]:
-        max_lack_entity = max(len(b['entity_lack']) for b in batch)
-        max_lack_ht = max(len(b['lack_relations']) for b in batch)
-        entity_lack = torch.zeros((batch_size, max_lack_entity, max_mention_num))
-        lack_relations = torch.zeros((batch_size, max_lack_ht, relation_num))
-        lack_hts = torch.zeros((batch_size, max_lack_ht, 2), dtype=torch.int64)
-        lack_relation_mask = torch.zeros((batch_size, max_lack_ht), dtype=torch.bool)
-        for idx, b in enumerate(batch):
-            entity_lack[idx, :b['entity_lack'].shape[0], :b['entity_lack'].shape[1]] = b['entity_lack']
-            lack_relations[idx, :b['lack_relations'].shape[0], :b['lack_relations'].shape[1]] = b['lack_relations']
-            lack_hts[idx, :b['lack_hts'].shape[0], :b['lack_hts'].shape[1]] = b['lack_hts']
-            lack_relation_mask[idx, :b['lack_hts'].shape[0]] = 1
-
-        res['entity_lack'] = entity_lack
-        res['lack_relations'] = lack_relations
-        res['lack_hts'] = lack_hts
-        res['lack_relation_mask'] = lack_relation_mask
 
     return res
 

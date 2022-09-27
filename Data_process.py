@@ -111,29 +111,19 @@ def process(data_path, suffix=''):
 
         mention_map = []
         entity_map = torch.zeros((len(doc['vertexSet']), mention_num))
-        entity_pos = torch.zeros([len(input_id)])
+        entity_pos = torch.zeros([len(input_id)])  # 对应位置为对应实体的编号
         entity_first_appear = []
         mention_id = 0
         start = 0
 
-        entity_lack = []
-        lack_index = []
         for idx, entity in enumerate(doc['vertexSet']):
             entity_map[idx, start: start + len(entity)] = 1
-            lack_index.append(list(range(start, start + len(entity))))
             start += len(entity)
             entity_first_appear.append(entity[0]['global_pos'][0])
-            temp = torch.zeros((len(entity), mention_num))
-            temp[:, start: start + len(entity)] = 1
-            if len(entity) > 1:
-                for i, lack_i in enumerate(lack_index[-1]):
-                    temp[i, lack_i] = 0
-            entity_lack.append(temp)
             for mention in entity:
                 mention_map.append(word_map[mention['global_pos'][0]])
                 entity_pos[word_map[mention['global_pos'][0]]: word_map[mention['global_pos'][1]]] = idx + 1
                 mention_id += 1
-        entity_lack = torch.cat(entity_lack, dim=0)
 
         item = {'index': doc_id,
                 'title': doc['title'],
@@ -184,19 +174,11 @@ def process(data_path, suffix=''):
         # inter_index = []
         # intra_index = []
 
-        lack_hts = []
-        lack_relations = []
-
         i = -1
         for j, k in permutations(range(len(doc['vertexSet'])), 2):
             i += 1
             relation = [0] * relation_num
             hts.append([j, k])
-
-            lack_ht = []
-            for jj in lack_index[j]:
-                for kk in lack_index[k]:
-                    lack_ht.append([jj, kk])
 
             dis = entity_first_appear[k] - entity_first_appear[j]
             if dis < 0:
@@ -210,8 +192,6 @@ def process(data_path, suffix=''):
             else:
                 relation[0] = 1
             relations.append(relation)
-            lack_relations.extend([relation for _ in range(len(lack_ht))])
-            lack_hts.extend(lack_ht)
             # if entity2sent[j] & entity2sent[k]:
             #     g[('entity', 'intra', 'entity')].append((j, k))  # 实体在同一个句子中出现过
             #     intra_index.append(i)

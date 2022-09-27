@@ -300,6 +300,7 @@ class CELoss(nn.Module):
 
         with torch.no_grad():
             new_pred = pred.argmax(dim=-1).bool()
+            label = label.bool()
             self.gold_num += (label & relation_mask).sum()
             self.pred_num += (new_pred & relation_mask).sum()
             self.pred_true += (new_pred & label & relation_mask).sum()

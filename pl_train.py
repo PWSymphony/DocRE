@@ -63,14 +63,17 @@ class PlModel(pl.LightningModule):
         bin_res, relation_res = self.model(batch, is_train=True)
         _, loss1 = self.loss_fn_2(bin_res, **batch)
         pred, loss2 = self.loss_fn(pred=relation_res, **batch)
+
         self.compute_output(output=pred, batch=batch)
         self.loss_list.append(loss1 + loss2)
+
         log_dict = self.acc.get()
         log_dict['info'] = float(0)
         log_dict['loss'] = torch.stack(self.loss_list).mean()
         log_dict['lr'] = self.lr_schedulers().get_last_lr()[0]
         log_dict['epoch'] = float(self.current_epoch)
         self.log_dict(log_dict, prog_bar=False)
+
         return loss1 + loss2
 
     def training_epoch_end(self, outputs):
@@ -78,10 +81,13 @@ class PlModel(pl.LightningModule):
         self.loss_list.clear()
 
     def configure_optimizers(self):
-        PLM = [p for n, p in self.named_parameters() if p.requires_grad and ('PTM' in n)]
-        not_PLM = [p for n, p in self.named_parameters() if p.requires_grad and ('PTM' not in n)]
-        optimizer = optim.AdamW([{'params': PLM, 'lr': self.args.pre_lr},
-                                 {'params': not_PLM, 'lr': self.args.lr}])
+        no_decay = {"bias", "LayerNorm.weight"}
+        optimizer_grouped_parameters = [{
+            "params": [p for n, p in self.named_parameters() if not any(nd in n for nd in no_decay)],
+            "weight_decay": self.args.weight_decay, "lr": self.args.lr},
+            {"params": [p for n, p in self.named_parameters() if any(nd in n for nd in no_decay)],
+             "weight_decay": 0.0, "lr": self.args.pre_lr}]
+        optimizer = optim.AdamW(optimizer_grouped_parameters)
         scheduler = get_linear_schedule_with_warmup(optimizer=optimizer,
                                                     num_warmup_steps=int(self.args.total_step * self.args.warm_ratio),
                                                     num_training_steps=self.args.total_step)
@@ -96,9 +102,7 @@ class PlModel(pl.LightningModule):
         return loss
 
     def validation_epoch_end(self, validation_step_outputs):
-        # loss = sum(validation_step_outputs) / len(validation_step_outputs)
         dev_result = self.loss_fn.get_result()
-        # dev_result['loss'] = round(float(loss), 6)
         dev_result['info'] = float(1)
         self.log_dict(dev_result, prog_bar=False)
         return
@@ -113,7 +117,7 @@ class PlModel(pl.LightningModule):
 
             # gold.sum(0).sum(0) 一对实体有多种关系会被计算为多对实体
             gold_na = relations[..., 0].sum()
-            gold_not_na = relations[..., 1:].sum(-1).bool().sum()  # 先求和，在将不为0的改为1，再次求和
+            gold_not_na = relations[..., 1:].nonzero().shape[0]  # 先求和，在将不为0的改为1，再次求和
             pred_na = result[..., 0].sum()
             pred_not_na = result[..., 1:].sum()
             self.acc.add_NA(num=gold_na, correct_num=pred_na)
@@ -128,6 +132,8 @@ class MyLogger(LightningLoggerBase):
         pl_logger.addHandler(logging.FileHandler(log_path + '.txt'))
 
         self.base_log = get_logger(log_path, is_print=args.print_log)
+        cur_time = time.strftime('%Y年%m月%d日, %H:%M', time.localtime())
+        self.base_log.info(cur_time)
 
     @property
     def name(self):
@@ -219,15 +225,14 @@ def main(args):
     model = PlModel(args)
     trainer = pl.Trainer.from_argparse_args(args=args, logger=my_log, callbacks=callbacks, strategy=strategy)
     trainer.fit(model=model, datamodule=dm)
-    # trainer.validate(model=model, datamodule=dm, ckpt_path=args.checkpoint_dir + '/ATLOP.ckpt')
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--accelerator", type=str, default='gpu')
-    parser.add_argument("--accumulate_grad_batches", type=int, default=1)
-    parser.add_argument("--devices", type=int, nargs='+', default=[7])
+    parser.add_argument("--accumulate_grad_batches", type=int, default=4)
+    parser.add_argument("--devices", type=int, nargs='+', default=[0])
     parser.add_argument("--max_epochs", type=int, default=30)
     parser.add_argument("--precision", type=int, default=16)
     parser.add_argument("--log_every_n_steps", type=int, default=200)
@@ -239,6 +244,7 @@ if __name__ == "__main__":
     parser.add_argument("--loss_fn", type=str, default="ATL")
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--pre_lr", type=float, default=5e-5)
+    parser.add_argument("--weight_decay", type=float, default=1e-3)
     parser.add_argument("--warm_ratio", type=float, default=0.06)
     parser.add_argument("--relation_num", type=int, default=97)
     parser.add_argument("--result_dir", type=str, default='./result')
