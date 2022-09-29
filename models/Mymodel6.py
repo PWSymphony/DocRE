@@ -4,8 +4,7 @@ import dgl
 import torch
 import torch.nn as nn
 from torch.nn.utils.rnn import pad_sequence
-import numpy as np
-from itertools import accumulate
+
 from .long_BERT import process_long_input
 
 pad_sequence = partial(pad_sequence, batch_first=True)
@@ -66,7 +65,6 @@ class my_model6(nn.Module):
             h.append(cur_entity[hts[i][0], :])
             t.append(cur_entity[hts[i][1], :])
 
-        # return pad_sequence(h), pad_sequence(t), entity
         return torch.cat(h, dim=0), torch.cat(t, dim=0), entity
 
     @staticmethod
@@ -84,7 +82,6 @@ class my_model6(nn.Module):
                                           (torch.sum(context_attention, dim=-1, keepdim=True) + 1e-20))
             context_info.append(context_attention @ context[i])
 
-        # return pad_sequence(context_info)
         return torch.cat(context_info, dim=0)
 
     def forward(self, param, **kwargs):
@@ -119,23 +116,6 @@ class my_model6(nn.Module):
         return bin_res, relation_res
 
 
-# def create_graph(bin_res, hts, context_info, entity):
-#     batch_size = context_info.shape[0]
-#     entity_num = [len(x) for x in entity]
-#     edge_index = (bin_res[..., 1] > bin_res[..., 0]).cpu().numpy()  # >=
-#
-#     graphs = []
-#     edge_feature = []
-#     edge_num = []
-#     for i in range(batch_size):
-#         edge_index[i][len(hts[0][0]):] = False
-#         edge_list = hts[i][:, edge_index[i, :hts[i].shape[-1]].tolist()]
-#         edge_num.append(edge_list.shape[-1])
-#         graph = dgl.graph((edge_list[0], edge_list[1]), num_nodes=entity_num[i])
-#         edge_feature.append(context_info[i][edge_index[i]])
-#         graphs.append(graph.to(bin_res.device))
-#     return graphs, torch.cat(entity, dim=0), torch.cat(edge_feature, dim=0), edge_num, edge_index
-
 def create_graph(bin_res, hts, context_info, entity):
     batch_size = len(hts)
     entity_num = [len(x) for x in entity]
@@ -165,24 +145,6 @@ def create_graph(bin_res, hts, context_info, entity):
         graphs, torch.cat(entity, dim=0), torch.cat(edge_feature, dim=0), \
         other_feature, edge_num, edge_index, restore_index
 
-
-# def get_res(edge_feature, context_info, edge_num, edge_index):
-#     edge_feature = edge_feature.reshape(edge_feature.shape[0], -1)
-#     edge_num.append(int(edge_feature.shape[0]) - sum(edge_num))
-#     edge_feature = torch.split(edge_feature, edge_num, dim=0)
-#     res = []
-#     for i in range(context_info.shape[0]):
-#         temp = []
-#         e_index = 0
-#         for j, k in enumerate(edge_index[i]):
-#             if k:
-#                 temp.append(edge_feature[i][e_index])
-#                 e_index += 1
-#             else:
-#                 temp.append(context_info[i][j])
-#         temp = torch.stack(temp, dim=0)
-#         res.append(temp)
-#     return pad_sequence(res)
 
 def get_res(edge_feature, edge_num, other_feature, restore_index):
     batch_size = len(other_feature)
