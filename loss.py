@@ -19,7 +19,7 @@ class ATLoss(nn.Module):
 
     @staticmethod
     def forward(pred, **batch):
-        labels = batch['relations']
+        labels = batch['relations'].clone()
         # TH label
         th_label = torch.zeros_like(labels, dtype=torch.float).to(labels)
         th_label[:, 0] = 1.0

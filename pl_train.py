@@ -37,7 +37,7 @@ transformer_log.set_verbosity_error()
 LOSS_FN = {"ATL": ATLoss, "BCE": BCELoss, "Multi": MultiLoss}
 MODELS = {'model': models.my_model, 'model1': models.my_model1, 'model2': models.my_model2,
           'model3': models.my_model3, 'model4': models.my_model4, 'model5': models.my_model5,
-          'model6': models.my_model6}
+          'model6': models.my_model6, 'model7': models.my_model7}
 
 
 class PlModel(pl.LightningModule):
@@ -61,12 +61,11 @@ class PlModel(pl.LightningModule):
         return self.model(batch)
 
     def training_step(self, batch, batch_idx):
-        bin_res, relation_res = self.model(batch, is_train=True)
-        _, loss1 = self.loss_fn_2(bin_res, **batch)
-        pred, loss2 = self.loss_fn(pred=relation_res, **batch)
+        relation_res = self.model(batch, is_train=True)
+        pred, loss = self.loss_fn(pred=relation_res, **batch)
 
         self.compute_output(output=pred, batch=batch)
-        self.loss_list.append(loss1 + loss2)
+        self.loss_list.append(loss)
 
         log_dict = self.acc.get()
         log_dict['info'] = float(0)
@@ -75,7 +74,7 @@ class PlModel(pl.LightningModule):
         log_dict['epoch'] = float(self.current_epoch)
         self.log_dict(log_dict, prog_bar=False)
 
-        return loss1 + loss2
+        return loss
 
     def training_epoch_end(self, outputs):
         self.acc.clear()

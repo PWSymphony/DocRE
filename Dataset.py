@@ -11,14 +11,10 @@ from torch.nn.utils.rnn import pad_sequence
 
 class my_dataset(Dataset):
     def __init__(self, path, is_zip=True):
-        if is_zip:
-            with zipfile.ZipFile(path + '.zip') as zipFile:
-                file_name = os.path.split(path)[-1]
-                zip_data = zipFile.read(file_name + '.data')
-                self.data = pickle.loads(zip_data)
-        else:
-            with open(path + '.data', 'rb') as f:
-                self.data = pickle.loads(f.read())
+        with zipfile.ZipFile(path + '.zip') as zipFile:
+            file_name = os.path.split(path)[-1]
+            zip_data = zipFile.read(file_name + '.data')
+            self.data = pickle.loads(zip_data)
 
     def __getitem__(self, index):
         return self.data[index]
@@ -31,7 +27,6 @@ def get_batch(batch):
     max_len = max(len(b['input_id']) for b in batch)
     batch_size = len(batch)
     ner_len = max(len(b['ner_id']) for b in batch)
-    # max_ht_num = max(len(b['hts']) for b in batch)
 
     input_ids = torch.zeros(batch_size, max_len, dtype=torch.long)
     input_mask = torch.zeros(batch_size, max_len, dtype=torch.float)
@@ -44,15 +39,6 @@ def get_batch(batch):
 
     relations = []
     relation_mask = []
-
-    if 'graph' in batch[0]:
-        graphs = [b['graph'] for b in batch]
-        inter_index = [b['inter_index'] for b in batch]
-        intra_index = [b['intra_index'] for b in batch]
-    else:
-        graphs = None
-        inter_index = None
-        intra_index = None
 
     indexes = []
     titles = []
@@ -98,11 +84,6 @@ def get_batch(batch):
                titles=titles,
                indexes=indexes,
                labels=all_label2in_train)
-
-    if graphs:
-        res['graphs'] = graphs
-        res['inter_index'] = inter_index
-        res['intra_index'] = intra_index
 
     return res
 

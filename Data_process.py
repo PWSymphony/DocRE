@@ -10,13 +10,6 @@ import ujson as json
 from tqdm import tqdm
 from transformers import BertTokenizer
 
-# import spacy
-
-# import networkx as nx
-
-# spacy.prefer_gpu(0)
-# nlp = spacy.load("en_core_web_sm")
-
 raw_data_path = r"./data/raw"
 out_data_path = r"./data"
 train_annotated_file_name = path_join(raw_data_path, 'train_annotated.json')
@@ -169,11 +162,6 @@ def process(data_path, suffix=''):
         relation_num = len(rel2id)
         ht_distance = []
 
-        # g = {('entity', 'intra', 'entity'): [],
-        #      ('entity', 'inter', 'entity'): []}  # 创建图
-        # inter_index = []
-        # intra_index = []
-
         i = -1
         for j, k in permutations(range(len(doc['vertexSet'])), 2):
             i += 1
@@ -192,33 +180,8 @@ def process(data_path, suffix=''):
             else:
                 relation[0] = 1
             relations.append(relation)
-            # if entity2sent[j] & entity2sent[k]:
-            #     g[('entity', 'intra', 'entity')].append((j, k))  # 实体在同一个句子中出现过
-            #     intra_index.append(i)
-            # else:
-            #     g[('entity', 'inter', 'entity')].append((j, k))  # 实体出现在不同的句子中
-            #     inter_index.append(i)
-
-        # item['hts'] = torch.tensor(hts)
         item['relations'] = torch.tensor(relations)
         item['ht_distance'] = torch.tensor(ht_distance)
-        # item['graph'] = dgl.heterograph(g)
-        # item['intra_index'] = intra_index
-        # item['inter_index'] = inter_index
-
-        # item['lack_hts'] = torch.tensor(lack_hts)
-        # item['lack_relations'] = torch.tensor(lack_relations)
-        # item['entity_lack'] = entity_lack
-
-        # ht_num = len(hts)
-        # mention_ht, mention_ht_map = mention_pair(doc['vertexSet'], ht_num)
-        # item['mention_ht'] = torch.tensor(mention_ht)
-        # item['mention_ht_map'] = mention_ht_map
-
-        # pairs, pair_labels = mention2mention(doc['vertexSet'])
-        # pairs, pair_labels = shuffle(pairs, pair_labels)
-        # item['pairs'] = torch.tensor(pairs)
-        # item['pair_labels'] = torch.tensor(pair_labels)
 
         data.append(item)
 
@@ -228,47 +191,6 @@ def process(data_path, suffix=''):
     zip_file = zipfile.ZipFile(out_dir + '.zip', mode='w', compression=zipfile.ZIP_LZMA)
     zip_file.writestr(f'{suffix}_{data_type}' + '.data', data)
     print(suffix, f': {len(data) / 1024 / 1024 :.2f}MB')
-
-
-def mention_pair(entities, ht_num):
-    mention_num = list(map(len, entities))
-    mention_ht = []
-    mention_ht_num = []
-    mention_index = [sum(mention_num[:i]) for i in range(len(mention_num))]
-    for h_id, h in enumerate(entities):
-        for t_id, t in enumerate(entities):
-            if h_id == t_id:
-                continue
-            mention_ht_num.append(len(h) * len(t))
-            for h_mention in range(len(h)):
-                for t_mention in range(len(t)):
-                    mention_ht.append([mention_index[h_id] + h_mention, mention_index[t_id] + t_mention])
-    mention_ht_map = torch.zeros(ht_num, len(mention_ht))
-    start = 0
-    for index, num in enumerate(mention_ht_num):
-        mention_ht_map[index, start:start + num] = 1
-        start += num
-
-    return mention_ht, mention_ht_map
-
-
-def mention2mention(entities):
-    mention2entity = {}
-    mention_id = 0
-    entity_id = 0
-    pairs = []
-    labels = []
-    for e in entities:
-        for m in e:
-            mention2entity[mention_id] = entity_id
-            mention_id += 1
-        entity_id += 1
-    for i in range(mention_id):
-        for j in range(i + 1, mention_id):
-            pairs.append([i, j])
-            labels.append([1, 0] if mention2entity[i] == mention2entity[j] else [0, 1])
-
-    return pairs, labels
 
 
 if __name__ == '__main__':
