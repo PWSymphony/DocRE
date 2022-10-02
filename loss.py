@@ -1,5 +1,4 @@
 import json
-from itertools import permutations
 from os.path import join as path_join
 
 import numpy as np
@@ -18,8 +17,15 @@ class ATLoss(nn.Module):
         self.test_result = []
 
     @staticmethod
-    def forward(pred, **batch):
-        labels = batch['relations'].clone()
+    def forward(pred, batch):
+        labels = batch['relations']
+        label_mask = batch['relation_mask']
+
+        have_relation_num = label_mask.sum(-1)
+        new_pred = [pred[i, :index] for i, index in enumerate(have_relation_num)]
+        labels = [labels[i, :index] for i, index in enumerate(have_relation_num)]
+        new_pred = torch.cat(new_pred, dim=0)
+        labels = torch.cat(labels, dim=0)
         # TH label
         th_label = torch.zeros_like(labels, dtype=torch.float).to(labels)
         th_label[:, 0] = 1.0
@@ -29,11 +35,11 @@ class ATLoss(nn.Module):
         n_mask = 1 - labels
 
         # Rank positive classes to TH
-        logit1 = pred - (1 - p_mask) * 1e30
+        logit1 = new_pred - (1 - p_mask) * 1e30
         loss1 = -(F.log_softmax(logit1, dim=-1) * labels).sum(1)
 
         # Rank TH to negative classes
-        logit2 = pred - (1 - n_mask) * 1e30
+        logit2 = new_pred - (1 - n_mask) * 1e30
         loss2 = -(F.log_softmax(logit2, dim=-1) * th_label).sum(1)
 
         # Sum two parts
@@ -42,7 +48,11 @@ class ATLoss(nn.Module):
         return pred, loss
 
     @staticmethod
-    def get_label(logits, num_labels=-1):  # num_labels 是最大的标签数量
+    def get_label(logits, label_mask, num_labels=-1):  # num_labels 是最大的标签数量
+        have_relation_num = label_mask.sum(-1).cpu().detach().tolist()
+        logits = [logits[i, :index] for i, index in enumerate(have_relation_num)]
+        logits = torch.cat(logits, dim=0)
+
         th_logit = logits[:, 0].unsqueeze(1)
         output = torch.zeros_like(logits).to(logits)
         mask = (logits > th_logit)
@@ -53,10 +63,13 @@ class ATLoss(nn.Module):
         output[mask] = 1.0
         output[:, 0] = (output.sum(1) == 0.).to(logits)
 
+        output = torch.split(output, have_relation_num, dim=0)
+        output = pad_sequence(output, batch_first=True)
         return output
 
     @staticmethod
     def label2list(pre_label):
+        pre_label = pre_label.data.cpu().numpy()
         output = []
         for b in pre_label:
             b_output = []
@@ -67,19 +80,23 @@ class ATLoss(nn.Module):
 
     def push_result(self, batch_result, batch_info):
         labels = batch_info['labels']
+        all_test_idxs = batch_info['all_test_idxs']
         titles = batch_info['titles']
         indexes = batch_info['indexes']
+        relation_mask = batch_info['relation_mask']
 
-        pre_label = self.get_label(batch_result, num_labels=4)
-        pre_label = torch.split(pre_label, [x.shape[1] for x in batch_info['hts']], dim=0)
+        pre_label = self.get_label(batch_result, relation_mask, 4)
         pre_label = self.label2list(pre_label)
+        predict_re = batch_result.data.cpu().numpy()
+
         for i in range(len(labels)):
             label = labels[i]
             index = indexes[i]
+
             self.total_recall += len(label)
-            j = -1
-            for h_idx, t_idx in permutations(range(batch_info['entity_map'][i].shape[0]), 2):
-                j += 1
+
+            test_idxs = all_test_idxs[i]
+            for j, (h_idx, t_idx) in enumerate(test_idxs):
                 for r in pre_label[i][j]:
                     if r == 0:
                         break
@@ -88,7 +105,7 @@ class ATLoss(nn.Module):
                     if (h_idx, t_idx, r) in label:
                         in_label = True
                         in_train = label[(h_idx, t_idx, r)]
-                    self.test_result.append((in_label, in_train,
+                    self.test_result.append((in_label, float(predict_re[i, j, r]), in_train,
                                              titles[i], self.id2rel[str(r)], index, h_idx, t_idx, r))
 
     def get_result(self, is_test=False):
@@ -223,81 +240,3 @@ class BCELoss(nn.Module):
                     theta=theta,
                     ign_f1=ign_f1,
                     ign_theta_f1=f1_arr[ign_pos])
-
-
-class MultiLoss(ATLoss):
-    def __init__(self, config):
-        super(MultiLoss, self).__init__(config)
-        self.ATLoss = ATLoss(config)
-        self.BCELoss = nn.BCEWithLogitsLoss()
-        self.id2rel = json.load(open(path_join(config.data_path, 'raw', 'id2rel.json')))
-        self.total_recall = 0
-        self.test_result = []
-
-    def forward(self, pred, **batch):
-        if isinstance(pred, tuple):
-            ent_pred, cls_pred = pred
-            _, loss1 = self.ATLoss(ent_pred, **batch)
-            cls_label = batch['relations'].sum(1).bool().float()
-            cls_label[:, 0] = 0
-            loss2 = self.BCELoss(cls_pred, cls_label)
-            return ent_pred, loss1 + loss2
-
-        else:
-            pred, loss1 = self.ATLoss(pred, **batch)
-            return pred, loss1
-
-
-class LackLoss(ATLoss):
-    def __init__(self, config):
-        super(LackLoss, self).__init__(config)
-        self.ATLoss = ATLoss(config)
-        self.id2rel = json.load(open(path_join(config.data_path, 'raw', 'id2rel.json')))
-
-    def forward(self, pred, **batch):
-        if isinstance(pred, tuple):
-            all_pred, lack_pred = pred
-            all_pred, loss1 = self.ATLoss(all_pred, **batch)
-            _, loss2 = self.ATLoss(lack_pred, relations=batch['lack_relations'],
-                                   relation_mask=batch['lack_relation_mask'])
-            return all_pred, loss1 + 0.1 * loss2
-
-        else:
-            pred, loss1 = self.ATLoss(pred, **batch)
-            return pred, loss1
-
-
-class CELoss(nn.Module):
-    def __init__(self, config):
-        super(CELoss, self).__init__()
-        self.loss_fn = nn.CrossEntropyLoss(reduction="none")
-        self.gold_num = 0
-        self.pred_num = 0
-        self.pred_true = 0
-
-    def forward(self, pred, **batch):
-        label = batch['relations'][..., 1:].sum(-1).bool().long()
-        loss = self.loss_fn(pred, label)
-
-        with torch.no_grad():
-            new_pred = pred.argmax(dim=-1).bool()
-            label = label.bool()
-            self.gold_num += label.sum()
-            self.pred_num += new_pred.sum()
-            self.pred_true += (new_pred & label).sum()
-
-        return pred, loss.mean()
-
-    def push_result(self, *args, **kwargs):
-        pass
-
-    def get_result(self, *args, **kwargs):
-        self.pred_num = self.pred_num if self.pred_num else 1
-        self.gold_num = self.gold_num if self.gold_num else 1
-        recall = self.pred_true / self.gold_num
-        precision = self.pred_true / self.pred_num
-        f1 = (2 * recall * precision) / (recall + precision)
-        return dict(all_f1=f1,
-                    theta=0,
-                    ign_f1=recall,
-                    ign_theta_f1=precision)
