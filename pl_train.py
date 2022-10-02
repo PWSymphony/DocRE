@@ -6,7 +6,6 @@ import torch
 import torch.nn.functional as F
 from pytorch_lightning import seed_everything
 from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning.utilities.warnings import PossibleUserWarning
 from torch import optim
 from transformers import BertModel, logging as transformer_log
 from transformers.optimization import get_linear_schedule_with_warmup
@@ -138,7 +137,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--seed", type=int, default=2077)
     parser.add_argument("--accelerator", type=str, default='gpu')
     parser.add_argument("--accumulate_grad_batches", type=int, default=1)
     parser.add_argument("--devices", type=int, nargs='+', default=[0])
