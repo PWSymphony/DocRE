@@ -1,20 +1,22 @@
-
-import numpy as np
-import torch
-import zipfile
-import os
 import _pickle as pickle
-from torch.utils.data import Dataset, DataLoader
-from itertools import permutations
-from torch.nn.utils.rnn import pad_sequence
+import os
+import zipfile
+
+import torch
+from pytorch_lightning import LightningDataModule
+from torch.utils.data import DataLoader, RandomSampler
+from torch.utils.data import Dataset
 
 
 class my_dataset(Dataset):
-    def __init__(self, path, is_zip=True):
-        with zipfile.ZipFile(path + '.zip') as zipFile:
-            file_name = os.path.split(path)[-1]
-            zip_data = zipFile.read(file_name + '.data')
-            self.data = pickle.loads(zip_data)
+    def __init__(self, path, file_name):
+        file_path = os.path.join(path, file_name)
+        if not os.path.exists(file_path + ".data"):
+            with zipfile.ZipFile(file_path + '.zip') as zipFile:
+                zipFile.extractall(path)
+
+        with open(file_path + '.data', 'rb') as f:
+            self.data = pickle.loads(f.read())
 
     def __getitem__(self, index):
         return self.data[index]
@@ -24,72 +26,76 @@ class my_dataset(Dataset):
 
 
 def get_batch(batch):
-    max_len = max(len(b['input_id']) for b in batch)
+    max_len = max([len(b['input_id']) for b in batch])
     batch_size = len(batch)
-    ner_len = max(len(b['ner_id']) for b in batch)
+    max_ht_num = max([len(b['hts']) for b in batch])
+    relation_num = batch[0]['relations'].shape[-1]
+    max_mention_num = max([b['mention_num'] for b in batch])
+    max_entity_num = max([b['entity_num'] for b in batch])
 
     input_ids = torch.zeros(batch_size, max_len, dtype=torch.long)
     input_mask = torch.zeros(batch_size, max_len, dtype=torch.float)
-    mention_map = []
-    entity_map = []
-    # entity_pos = torch.zeros(batch_size, max_len, dtype=torch.long)
-    # entity_ner = torch.zeros(batch_size, ner_len, dtype=torch.long)
-    # ht_pair_dis = torch.zeros(batch_size, max_ht_num, dtype=torch.long)
-    hts = []
-
-    relations = []
-    relation_mask = []
+    mention_map = torch.zeros(batch_size, max_mention_num, max_len, dtype=torch.float32)
+    entity_map = torch.zeros(batch_size, max_entity_num, max_mention_num, dtype=torch.float)
+    hts = torch.zeros(batch_size, max_ht_num, 2, dtype=torch.int64)
+    relations = torch.zeros(batch_size, max_ht_num, relation_num, dtype=torch.float32)
+    relation_mask = torch.zeros(batch_size, max_ht_num, dtype=torch.bool)
 
     indexes = []
     titles = []
     all_label2in_train = []
+    all_test_idxs = []
 
     for idx, b in enumerate(batch):
         input_ids[idx, :len(b['input_id'])] = b['input_id']
         input_mask[idx, :len(b['input_id'])] = 1
-        mention_map.append(b['mention_map'])
-        entity_map.append(b['entity_map'])
-        # entity_pos[idx, :len(b['entity_pos'])] = b['entity_pos']
-        # entity_ner[idx, :len(b['ner_id'])] = b['ner_id']
-        # ht_pair_dis[idx, :len(b['ht_distance'])] = b['ht_distance']
-        temp_ht = torch.tensor(list(permutations(range(b['entity_num']), 2)), dtype=torch.long)
-        hts.append(temp_ht.T)
+        mention_map[idx, :b['mention_map'].shape[0], :b['mention_map'].shape[1]] = b['mention_map']
+        entity_map[idx, :b['entity_map'].shape[0], :b['entity_map'].shape[1]] = b['entity_map']
+        hts[idx, :len(b['hts'])] = b['hts']
 
-        relations.append(b['relations'].float())
-        relation_mask.append(torch.ones(b['relations'].shape[0], dtype=torch.bool))
+        relations[idx, :len(b['relations'])] = b['relations']
+        relation_mask[idx, :len(b['relations'])] = 1
 
         # for test
         titles.append(b['title'])
         indexes.append(b['index'])
-        label2in_train = {}
-        labels = b['labels']
-        for label in labels:
-            label2in_train[(label['h'], label['t'], label['r'])] = label['in_train']
-        all_label2in_train.append(label2in_train)
+        all_test_idxs.append(b['hts'].tolist())
+        all_label2in_train.append(b['label2in_train'])
 
-    res = dict(input_id=input_ids,
-               input_mask=input_mask,
-               mention_map=mention_map,
-               entity_map=entity_map,
-               # entity_ner=entity_ner,
-               # entity_pos= entity_pos,
-               # ht_pair_dis=ht_pair_dis,
-               hts=hts,
-               # relations=pad_sequence(relations, batch_first=True),
-               # relation_mask=pad_sequence(relation_mask, batch_first=True),
-               relations=torch.cat(relations, dim=0),
-               # relation_mask=pad_sequence(relation_mask, batch_first=True),
+    return dict(input_id=input_ids,
+                input_mask=input_mask,
+                mention_map=mention_map,
+                entity_map=entity_map,
+                hts=hts,
+                relations=relations,
+                relation_mask=relation_mask,
 
-               # test
-               titles=titles,
-               indexes=indexes,
-               labels=all_label2in_train)
-
-    return res
+                # test
+                titles=titles,
+                indexes=indexes,
+                labels=all_label2in_train,
+                all_test_idxs=all_test_idxs)
 
 
-if __name__ == "__main__":
-    data = my_dataset(r'data/dev_uncased', is_zip=True)
-    dataloader = DataLoader(data, batch_size=2, collate_fn=get_batch)
-    for d in dataloader:
-        pass
+class DataModule(LightningDataModule):
+    def __init__(self, args):
+        super(DataModule, self).__init__()
+        self.batch_size = args.batch_size
+        self.num_workers = args.num_workers
+
+        train_file_name = f"train"
+        valid_file_name = f'dev'
+        self.train_dataset = my_dataset(args.data_path, train_file_name)
+        self.val_dataset = my_dataset(args.data_path, valid_file_name)
+
+    def train_dataloader(self):
+        train_sampler = RandomSampler(self.train_dataset)
+        train_dataloader = DataLoader(self.train_dataset, sampler=train_sampler, num_workers=self.num_workers,
+                                      batch_size=self.batch_size, collate_fn=get_batch,
+                                      pin_memory=True)
+        return train_dataloader
+
+    def val_dataloader(self):
+        val_dataloader = DataLoader(self.val_dataset, batch_size=self.batch_size * 2, collate_fn=get_batch,
+                                    num_workers=self.num_workers)
+        return val_dataloader

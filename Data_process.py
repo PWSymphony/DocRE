@@ -1,10 +1,8 @@
 import _pickle as pickle
 import zipfile
 from collections import defaultdict
-from itertools import accumulate, permutations
 from os.path import join as path_join
 
-import numpy as np
 import torch
 import ujson as json
 from tqdm import tqdm
@@ -23,23 +21,7 @@ with open(path_join(raw_data_path, 'rel2id.json')) as f:
     rel2id = json.load(f)
 
 with open(path_join(raw_data_path, 'ner2id.json')) as f:
-    # d = ['β', 'γ', 'δ', 'ε', 'ζ', 'θ', 'κ']
-    # d = ['[1]', '[2]', '[3]', '[4]', '[5]', '[6]', '[7]']
     ner2id = json.load(f)
-    # for index, k in enumerate(ner2id.keys()):
-    #     ner2id[k] = d[index]
-
-dis2idx = np.zeros(1024, dtype='int64')
-dis2idx[1] = 1
-dis2idx[2:] = 2
-dis2idx[4:] = 3
-dis2idx[8:] = 4
-dis2idx[16:] = 5
-dis2idx[32:] = 6
-dis2idx[64:] = 7
-dis2idx[128:] = 8
-dis2idx[256:] = 9
-dis2idx[512:] = 10
 
 # 在train中出现过的实体对
 fact_in_train = set([])
@@ -48,47 +30,40 @@ data_type = r'uncased'
 tokenizer = BertTokenizer.from_pretrained(f'bert-base-{data_type}')
 token_start_id = tokenizer.cls_token_id
 token_end_id = tokenizer.sep_token_id
+type_relation = defaultdict(set)
 
 
 def process(data_path, suffix=''):
     """
-    :param data_path: 原始数据地址
+    :param data_path: 原始数据
     :param suffix: 数据类别（测试集、训练集、验证集）
     """
     with open(data_path, 'r') as file:
         ori_data = json.load(file)
 
     data = []
-    skip = suffix in ('train', 'dev')
+
     for doc_id, doc in tqdm(enumerate(ori_data), total=len(ori_data), desc=suffix, unit='doc'):
-        if skip and doc['labels'] == []:
-            continue
-
         sent_len = [len(sent) for sent in doc['sents']]
-        sent_map = [0] + list(accumulate(sent_len))
-        mention_start = {}
-        mention_end = {}
-        ner_id = []
+        sent_map = [0] + [sum(sent_len[:i + 1]) for i in range(len(sent_len))]
+        mention_start = set()
+        mention_end = set()
         mention_num = 0
-        entity2sent = defaultdict(set)
-
-        for entity_id, entity in enumerate(doc['vertexSet']):
+        for entity in doc['vertexSet']:
             mention_num += (len(entity))
-            ner_id.append(int(ner2id[entity[0]['type']]))
             for mention in entity:
-                mention_start[(mention['sent_id'], mention['pos'][0])] = ner2id[entity[0]['type']]
-                mention_end[(mention['sent_id'], mention['pos'][1] - 1)] = ner2id[entity[0]['type']]
+                mention_start.add((mention['sent_id'], mention['pos'][0]))
+                mention_end.add((mention['sent_id'], mention['pos'][1] - 1))
 
                 mention['global_pos'] = [mention['pos'][0] + sent_map[mention['sent_id']],
                                          mention['pos'][1] + sent_map[mention['sent_id']]]
-
-                entity2sent[entity_id].add(mention['sent_id'])
 
         input_id = [token_start_id]
         word_map = []
         for sent_id, sent in enumerate(doc['sents']):
             for word_id, word in enumerate(sent):
                 word_map.append(len(input_id))
+
                 token = tokenizer.tokenize(word)
                 if (sent_id, word_id) in mention_start:
                     token = ['*'] + token
@@ -102,31 +77,24 @@ def process(data_path, suffix=''):
         input_id.append(token_end_id)
         word_map.append(len(input_id))  # 加上了最后的 [102]
 
-        mention_map = []
+        mention_map = torch.zeros([mention_num, len(input_id)])
         entity_map = torch.zeros((len(doc['vertexSet']), mention_num))
-        entity_pos = torch.zeros([len(input_id)])  # 对应位置为对应实体的编号
-        entity_first_appear = []
         mention_id = 0
         start = 0
-
         for idx, entity in enumerate(doc['vertexSet']):
             entity_map[idx, start: start + len(entity)] = 1
             start += len(entity)
-            entity_first_appear.append(entity[0]['global_pos'][0])
             for mention in entity:
-                mention_map.append(word_map[mention['global_pos'][0]])
-                entity_pos[word_map[mention['global_pos'][0]]: word_map[mention['global_pos'][1]]] = idx + 1
+                mention_map[mention_id, word_map[mention['global_pos'][0]]] = 1
                 mention_id += 1
 
         item = {'index': doc_id,
                 'title': doc['title'],
                 'input_id': torch.tensor(input_id),
-                'ner_id': torch.tensor(ner_id),
                 'mention_num': mention_num,
                 'entity_num': len(doc['vertexSet']),
                 'mention_map': mention_map,
-                'entity_map': entity_map,
-                'entity_pos': entity_pos}
+                'entity_map': entity_map}
 
         new_labels = []
         labels = doc.get('labels', [])  # labels: [{'r': 'P159', 'h': 0, 't': 2, 'evidence': [0]}, ...]
@@ -160,37 +128,56 @@ def process(data_path, suffix=''):
         hts = []
         relations = []
         relation_num = len(rel2id)
-        ht_distance = []
+        for j in range(len(doc['vertexSet'])):
+            for k in range(len(doc['vertexSet'])):
+                if j == k:
+                    continue
+                relation = [0] * relation_num
+                hts.append([j, k])
 
-        i = -1
-        for j, k in permutations(range(len(doc['vertexSet'])), 2):
-            i += 1
-            relation = [0] * relation_num
-            hts.append([j, k])
+                if (j, k) in idx2label:
+                    for rel_id in idx2label[(j, k)]:
+                        relation[rel_id] = 1
+                else:
+                    relation[0] = 1
+                relations.append(relation)
 
-            dis = entity_first_appear[k] - entity_first_appear[j]
-            if dis < 0:
-                ht_distance.append(-int(-dis2idx[dis]))
-            else:
-                ht_distance.append(int(dis2idx[dis]))
+        label2in_train = {}
+        for label in new_labels:
+            label2in_train[(label['h'], label['t'], label['r'])] = label['in_train']
 
-            if (j, k) in idx2label:
-                for rel_id in idx2label[(j, k)]:
-                    relation[rel_id] = 1
-            else:
-                relation[0] = 1
-            relations.append(relation)
+        item['hts'] = torch.tensor(hts)
         item['relations'] = torch.tensor(relations)
-        item['ht_distance'] = torch.tensor(ht_distance)
+        item['label2in_train'] = label2in_train
 
         data.append(item)
 
     print(suffix, ': ', len(data))
-    out_dir = path_join(out_data_path, f'{suffix}_{data_type}')
+    out_dir = path_join(out_data_path, f'{suffix}.zip')
     data = pickle.dumps(data)
-    zip_file = zipfile.ZipFile(out_dir + '.zip', mode='w', compression=zipfile.ZIP_LZMA)
-    zip_file.writestr(f'{suffix}_{data_type}' + '.data', data)
+    zip_file = zipfile.ZipFile(out_dir, mode='w', compression=zipfile.ZIP_LZMA)
+    zip_file.writestr(f'{suffix}.data', data)
     print(suffix, f': {len(data) / 1024 / 1024 :.2f}MB')
+
+
+def get_type_relation(file_name):
+    with open(file_name, 'r') as file:
+        docs = json.load(file)
+
+    global type_relation
+    for item in docs:
+        entity = item['vertexSet']
+        for label in item['labels']:
+            h_type = entity[label['h']][0]['type']
+            h_type = ner2id[h_type]
+
+            t_type = entity[label['t']][0]['type']
+            t_type = ner2id[t_type]
+
+            r = rel2id[label['r']]
+
+            type_relation[(h_type, t_type)].add(r)
+    type_relation = {k: list(v) + [0] for k, v in type_relation.items()}
 
 
 if __name__ == '__main__':
