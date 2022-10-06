@@ -147,7 +147,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--seed", type=int, default=2077)
+    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--accelerator", type=str, default='gpu')
     parser.add_argument("--accumulate_grad_batches", type=int, default=1)
     parser.add_argument("--devices", type=int, nargs='+', default=[0])
