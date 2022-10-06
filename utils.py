@@ -9,8 +9,6 @@ import numpy as np
 from pytorch_lightning.loggers.base import LightningLoggerBase
 from pytorch_lightning.utilities.distributed import rank_zero_only
 
-from Config import Config
-
 
 def get_logger(save_name, is_print=True):
     logger = logging.getLogger('my_log')
@@ -39,29 +37,6 @@ def my_logging(s, save_name, print_=True, log_=True, log_time=True):
     if log_:
         with open(os.path.join(os.path.join("log", save_name + '.txt')), 'a+') as f_log:
             f_log.write(s + '\n')
-
-
-def log_config_information(config: Config, logger):
-    """
-    记录训练的参数信息
-    """
-
-    TIME = time.strftime("%m-%d %H:%M")
-    logger.info(TIME)
-    logger.info('=' * 25 + 'config information' + '=' * 25)
-    s = []
-    i = 1
-    for k, v in config.__dict__.items():
-        if 'dir' in k or 'path' in k:
-            continue
-        s.append(f'{k}: {v}')
-        if i % 5 == 0:
-            s.append('\n')
-        i += 1
-    MAX_LEN = max(map(len, s))
-    message = [m if m == '\n' else m + (MAX_LEN - len(m)) * ' ' for m in s]
-    message = '|'.join(message)
-    logger.info('|' + message)
 
 
 def get_params(model):
@@ -136,7 +111,7 @@ class MyLogger(LightningLoggerBase):
         pl_logger = logging.getLogger('pytorch_lightning')
         pl_logger.addHandler(logging.FileHandler(log_path + '.txt'))
 
-        self.base_log = get_logger(log_path, is_print=args.print_log)
+        self.base_log = get_logger(log_path, is_print=not args.hidden_log)
 
         cur_time = time.strftime('%Y年%m月%d日, %H:%M', time.localtime())
         self.base_log.info(cur_time)

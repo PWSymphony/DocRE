@@ -14,6 +14,7 @@ from models import ReModel
 from loss import BCELoss, ATLoss
 from utils import all_accuracy, Accuracy, MyLogger
 from Dataset import DataModule
+from process_data import Processor
 
 warnings.filterwarnings("ignore", category=UserWarning)
 transformer_log.set_verbosity_error()
@@ -101,6 +102,11 @@ class PlModel(pl.LightningModule):
 
 
 def main(args):
+    # ========================================== 处理数据 ==========================================
+    if args.process_data:
+        processor = Processor(args)
+        processor()
+
     # ========================================== 检查参数 ==========================================
     if not torch.cuda.is_available():
         args.accelerator = 'cpu'
@@ -149,21 +155,24 @@ if __name__ == "__main__":
     parser.add_argument("--gradient_clip_val", type=float, default=1.0)
 
     parser.add_argument("--loss_fn", type=str, default="ATL", choices=['BCE', "ATL"])
+    parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--pre_lr", type=float, default=5e-5)
     parser.add_argument("--warm_ratio", type=float, default=0.06)
     parser.add_argument("--relation_num", type=int, default=97)
-    parser.add_argument("--data_path", type=str, default='./data')
-    parser.add_argument("--result_dir", type=str, default='./result')
-
-    parser.add_argument("--checkpoint_dir", type=str, default='./checkpoint')
-    parser.add_argument("--save_name", type=str, default='test')
-    parser.add_argument("--bert_name", type=str, default='bert-base-uncased')
-
-    parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--num_workers", type=int, default=4)
 
-    parser.add_argument("--print_log", action='store_true')
+    parser.add_argument("--save_name", type=str, default='test')
+    parser.add_argument("--result_dir", type=str, default='./result')
+    parser.add_argument("--checkpoint_dir", type=str, default='./checkpoint')
+    parser.add_argument("--bert_name", type=str, default='bert-base-uncased')
+    parser.add_argument("--data_path", type=str, default='./data')
+    parser.add_argument("--raw_path", type=str, default="./data/raw")
+    parser.add_argument("--meta_path", type=str, default="./data/meta")
+    parser.add_argument("--data_type", type=str, default="", choices=['', 'revised'])
+    parser.add_argument("--process_data", action='store_true')
+
+    parser.add_argument("--hidden_log", action='store_true')
     parser.add_argument("--log_path", type=str, default=r"./log/")
 
     main(parser.parse_args())

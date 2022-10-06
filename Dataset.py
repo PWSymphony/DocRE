@@ -40,6 +40,7 @@ def get_batch(batch):
     hts = torch.zeros(batch_size, max_ht_num, 2, dtype=torch.int64)
     relations = torch.zeros(batch_size, max_ht_num, relation_num, dtype=torch.float32)
     relation_mask = torch.zeros(batch_size, max_ht_num, dtype=torch.bool)
+    type_mask = torch.zeros(batch_size, max_ht_num, relation_num, dtype=torch.bool)
 
     indexes = []
     titles = []
@@ -55,6 +56,7 @@ def get_batch(batch):
 
         relations[idx, :len(b['relations'])] = b['relations']
         relation_mask[idx, :len(b['relations'])] = 1
+        type_mask[idx, :len(b['relations'])] = b['relation_mask']
 
         # for test
         titles.append(b['title'])
@@ -69,6 +71,7 @@ def get_batch(batch):
                 hts=hts,
                 relations=relations,
                 relation_mask=relation_mask,
+                type_mask=type_mask,
 
                 # test
                 titles=titles,
