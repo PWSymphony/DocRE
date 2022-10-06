@@ -55,8 +55,8 @@ def get_batch(batch):
         hts[idx, :len(b['hts'])] = b['hts']
 
         relations[idx, :len(b['relations'])] = b['relations']
-        relation_mask[idx, :len(b['relations'])] = 1
-        type_mask[idx, :len(b['relations'])] = b['relation_mask']
+        relation_mask[idx, :len(b['relations'])] = True
+        type_mask[idx, :len(b['relations'])] = b['type_mask']
 
         # for test
         titles.append(b['title'])
@@ -72,7 +72,6 @@ def get_batch(batch):
                 relations=relations,
                 relation_mask=relation_mask,
                 type_mask=type_mask,
-
                 # test
                 titles=titles,
                 indexes=indexes,

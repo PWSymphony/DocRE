@@ -1,4 +1,5 @@
 import argparse
+import platform
 import warnings
 
 import pytorch_lightning as pl
@@ -125,6 +126,9 @@ def main(args):
         total_step //= len(args.devices)
         strategy = 'ddp'
 
+    if platform.system().lower() != 'linux':
+        args.num_workers = 0
+
     args.total_step = total_step
 
     my_log = MyLogger(args)
@@ -155,18 +159,19 @@ if __name__ == "__main__":
     parser.add_argument("--gradient_clip_val", type=float, default=1.0)
 
     parser.add_argument("--loss_fn", type=str, default="ATL", choices=['BCE', "ATL"])
-    parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--pre_lr", type=float, default=5e-5)
     parser.add_argument("--warm_ratio", type=float, default=0.06)
     parser.add_argument("--relation_num", type=int, default=97)
-    parser.add_argument("--num_workers", type=int, default=4)
-
-    parser.add_argument("--save_name", type=str, default='test')
-    parser.add_argument("--result_dir", type=str, default='./result')
-    parser.add_argument("--checkpoint_dir", type=str, default='./checkpoint')
-    parser.add_argument("--bert_name", type=str, default='bert-base-uncased')
     parser.add_argument("--data_path", type=str, default='./data')
+    parser.add_argument("--result_dir", type=str, default='./result')
+
+    parser.add_argument("--checkpoint_dir", type=str, default='./checkpoint')
+    parser.add_argument("--save_name", type=str, default='test')
+    parser.add_argument("--bert_name", type=str, default='bert-base-uncased')
+
+    parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--raw_path", type=str, default="./data/raw")
     parser.add_argument("--meta_path", type=str, default="./data/meta")
     parser.add_argument("--data_type", type=str, default="", choices=['', 'revised'])

@@ -134,7 +134,7 @@ class Processor:
             hts = []
             relations = []
             relation_num = len(self.rel2id)
-            relation_mask = []
+            all_type_mask = []
 
             i = -1
             for j, k in permutations(range(len(doc['vertexSet'])), 2):
@@ -147,7 +147,7 @@ class Processor:
                 type_mask = torch.zeros(97, dtype=torch.bool)
                 mask_index = self.type_relation.get((h_type, t_type), [0])
                 type_mask[mask_index] = True
-                relation_mask.append(type_mask)
+                all_type_mask.append(type_mask)
 
                 relation = [0] * relation_num
                 hts.append([j, k])
@@ -166,7 +166,7 @@ class Processor:
             item['hts'] = torch.tensor(hts)
             item['relations'] = torch.tensor(relations)
             item['label2in_train'] = label2in_train
-            item['relation_mask'] = torch.stack(relation_mask, dim=0)
+            item['type_mask'] = torch.stack(all_type_mask, dim=0)
 
             data.append(item)
 
@@ -194,4 +194,4 @@ class Processor:
 
                 type_relation[(h_type, t_type)].add(r)
 
-        return {k: list(v) + [0] for k, v in self.type_relation.items()}
+        return {k: list(v) + [0] for k, v in type_relation.items()}

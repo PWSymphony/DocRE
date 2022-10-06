@@ -12,7 +12,7 @@ class ATLoss(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self.id2rel = json.load(open(path_join(config.data_path, 'raw', 'id2rel.json')))
+        self.id2rel = json.load(open(path_join(config.meta_path, 'id2rel.json')))
         self.total_recall = 0
         self.test_result = []
 
@@ -24,7 +24,6 @@ class ATLoss(nn.Module):
         have_relation_num = label_mask.sum(-1)
         new_pred = [pred[i, :index] for i, index in enumerate(have_relation_num)]
         labels = [labels[i, :index] for i, index in enumerate(have_relation_num)]
-
         new_pred = torch.cat(new_pred, dim=0)
         labels = torch.cat(labels, dim=0)
         # TH label
@@ -36,11 +35,11 @@ class ATLoss(nn.Module):
         n_mask = 1 - labels
 
         # Rank positive classes to TH
-        logit1 = new_pred - (1 - p_mask) * 65503
+        logit1 = new_pred - (1 - p_mask) * 1e30
         loss1 = -(F.log_softmax(logit1, dim=-1) * labels).sum(1)
 
         # Rank TH to negative classes
-        logit2 = new_pred - (1 - n_mask) * 65503
+        logit2 = new_pred - (1 - n_mask) * 1e30
         loss2 = -(F.log_softmax(logit2, dim=-1) * th_label).sum(1)
 
         # Sum two parts
@@ -142,7 +141,7 @@ class BCELoss(nn.Module):
         self.loss_fn = nn.BCEWithLogitsLoss(reduction='none')
 
         self.config = config
-        self.id2rel = json.load(open(path_join(config.data_path, 'raw', 'id2rel.json')))
+        self.id2rel = json.load(open(path_join(config.meta_path, 'id2rel.json')))
         self.total_recall = 0
         self.test_result = []
 
