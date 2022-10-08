@@ -34,8 +34,6 @@ class Processor:
         self.fact_in_train = set([])
 
         self.tokenizer = AutoTokenizer.from_pretrained(args.bert_name)
-        self.token_start_id = self.tokenizer.cls_token_id
-        self.token_end_id = self.tokenizer.sep_token_id
         self.type_relation = self.get_type_relation(self.train_file_name)
 
     def __call__(self):
@@ -64,7 +62,7 @@ class Processor:
                     mention['global_pos'] = [mention['pos'][0] + sent_map[mention['sent_id']],
                                              mention['pos'][1] + sent_map[mention['sent_id']]]
 
-            input_id = [self.token_start_id]
+            input_id = [self.tokenizer.cls_token_id]
             word_map = []
             for sent_id, sent in enumerate(doc['sents']):
                 for word_id, word in enumerate(sent):
@@ -80,8 +78,8 @@ class Processor:
                     input_id.extend(token)
 
             assert len(word_map) == sum(sent_len)
-            input_id.append(self.token_end_id)
-            word_map.append(len(input_id))  # 加上了最后的 [102]
+            input_id.append(self.tokenizer.sep_token_id)
+            word_map.append(len(input_id))  # 加上了最后的 sep_token_id
 
             mention_map = torch.zeros([mention_num, len(input_id)])
             entity_map = torch.zeros((len(doc['vertexSet']), mention_num))
