@@ -8,7 +8,7 @@ from os.path import join as path_join
 import torch
 import ujson as json
 from tqdm import tqdm
-from transformers import BertTokenizer
+from transformers import AutoTokenizer
 
 
 class Processor:
@@ -33,7 +33,7 @@ class Processor:
         # 在train中出现过的实体对
         self.fact_in_train = set([])
 
-        self.tokenizer = BertTokenizer.from_pretrained(args.bert_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(args.bert_name)
         self.token_start_id = self.tokenizer.cls_token_id
         self.token_end_id = self.tokenizer.sep_token_id
         self.type_relation = self.get_type_relation(self.train_file_name)

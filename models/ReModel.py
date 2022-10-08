@@ -4,9 +4,11 @@ from .utils import group_biLinear, process_long_input
 
 
 class ReModel(nn.Module):
-    def __init__(self, config, bert):
+    def __init__(self, config, bert, cls_token_id, sep_token_id):
         super(ReModel, self).__init__()
         self.bert = bert.requires_grad_(bool(config.pre_lr))
+        self.cls_token_id = cls_token_id
+        self.sep_token_id = sep_token_id
         bert_hidden_size = self.bert.config.hidden_size
         block_size = 64
 
@@ -64,7 +66,7 @@ class ReModel(nn.Module):
 
         ht_mask = (hts.sum(-1) != 0).unsqueeze(-1)
 
-        context, attention = process_long_input(self.bert, input_id, input_mask, [101], [102])
+        context, attention = process_long_input(self.bert, input_id, input_mask, self.cls_token_id, self.sep_token_id)
         h, t = self.get_ht(context, mention_map, entity_map, hts, ht_mask)
 
         entity_map = entity_map @ mention_map

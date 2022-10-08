@@ -1,4 +1,5 @@
 import argparse
+import os
 import platform
 import warnings
 
@@ -8,7 +9,7 @@ import torch.nn.functional as F
 from pytorch_lightning import seed_everything
 from pytorch_lightning.callbacks import ModelCheckpoint
 from torch import optim
-from transformers import BertModel, logging as transformer_log
+from transformers import AutoTokenizer, AutoModel, logging as transformer_log
 from transformers.optimization import get_linear_schedule_with_warmup
 
 from models import ReModel
@@ -27,7 +28,14 @@ class PlModel(pl.LightningModule):
     def __init__(self, args: argparse.Namespace):
         super(PlModel, self).__init__()
         self.args = args
-        self.model = ReModel(args, bert=BertModel.from_pretrained(args.bert_name))
+        tokenizer = AutoTokenizer.from_pretrained(args.bert_name)
+        if 'roberta' in args.bert_name:
+            cls_token_id = [tokenizer.cls_token_id]
+            sep_token_id = [tokenizer.sep_token_id, tokenizer.sep_token_id]
+        else:
+            cls_token_id = [tokenizer.cls_token_id]
+            sep_token_id = [tokenizer.sep_token_id]
+        self.model = ReModel(args, AutoModel.from_pretrained(args.bert_name), cls_token_id, sep_token_id)
         self.loss_fn = LOSS_FN[args.loss_fn](args)
         self.loss_list = []
         self.acc = all_accuracy()
@@ -83,7 +91,6 @@ class PlModel(pl.LightningModule):
         dev_result['loss'] = round(float(loss), 6)
         dev_result['info'] = float(1)
         self.log_dict(dev_result, prog_bar=False)
-        return
 
     def compute_output(self, output, batch):
         with torch.no_grad():
@@ -107,6 +114,10 @@ def main(args):
     if args.process_data:
         processor = Processor(args)
         processor()
+        for path in os.listdir(args.data_path):
+            if '.data' in path:
+                os.remove(os.path.join(args.data_path, path))
+        exit()
 
     # ========================================== 检查参数 ==========================================
     if not torch.cuda.is_available():
