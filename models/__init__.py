@@ -1,2 +1,1 @@
-from .ReModel import ReModel
-
+from .ReModel import ReModel, MAX, MIN

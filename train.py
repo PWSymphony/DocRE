@@ -9,14 +9,14 @@ import torch.nn.functional as F
 from pytorch_lightning import seed_everything
 from pytorch_lightning.callbacks import ModelCheckpoint
 from torch import optim
-from transformers import AutoTokenizer, AutoModel, logging as transformer_log
+from transformers import AutoModel, AutoTokenizer, logging as transformer_log
 from transformers.optimization import get_linear_schedule_with_warmup
 
-from models import ReModel
-from loss import BCELoss, ATLoss
-from utils import all_accuracy, Accuracy, MyLogger
 from Dataset import DataModule
+from loss import ATLoss, BCELoss
+from models import ReModel
 from process_data import Processor
+from utils import Accuracy, MyLogger, all_accuracy
 
 warnings.filterwarnings("ignore", category=UserWarning)
 transformer_log.set_verbosity_error()

@@ -1,6 +1,10 @@
 import torch
 import torch.nn as nn
+
 from .utils import group_biLinear, process_long_input
+
+MIN = 2 ** (-14)
+MAX = 65500
 
 
 class ReModel(nn.Module):
@@ -45,14 +49,14 @@ class ReModel(nn.Module):
             _hts[i] = _hts[i] + i * max_entity
         _hts = _hts.reshape(-1, 2)
 
-        entity_map = entity_map / (torch.sum(entity_map, dim=-1, keepdim=True) + 1e-20)
+        entity_map = entity_map / (torch.sum(entity_map, dim=-1, keepdim=True) + MIN)
         entity_attention = (entity_map.unsqueeze(1) @ attention).permute(1, 0, 2, 3)
 
         entity_attention = entity_attention.reshape(heads, -1, max_len)
         h_attention = entity_attention[:, _hts[..., 0]].reshape(heads, batch_size, -1, max_len)
         t_attention = entity_attention[:, _hts[..., 1]].reshape(heads, batch_size, -1, max_len)
         context_attention = torch.sum(h_attention * t_attention, dim=0)
-        context_attention = context_attention / (torch.sum(context_attention, dim=-1, keepdim=True) + 1e-20)
+        context_attention = context_attention / (torch.sum(context_attention, dim=-1, keepdim=True) + MIN)
 
         context_info = context_attention @ context
         return context_info * ht_mask
@@ -75,6 +79,6 @@ class ReModel(nn.Module):
         h = torch.tanh(self.h_dense(h) + self.hc_dense(context_info))
         t = torch.tanh(self.t_dense(t) + self.tc_dense(context_info))
         res = self.clas(h, t)
-        res = res - (~kwargs['type_mask']).float() * 1e30
+        res = res - (~kwargs['type_mask']).float() * MAX
 
         return res

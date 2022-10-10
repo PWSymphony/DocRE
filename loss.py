@@ -7,6 +7,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_sequence
 
+from models import MAX
+
 
 class ATLoss(nn.Module):
     def __init__(self, config):
@@ -35,11 +37,11 @@ class ATLoss(nn.Module):
         n_mask = 1 - labels
 
         # Rank positive classes to TH
-        logit1 = new_pred - (1 - p_mask) * 1e30
+        logit1 = new_pred - (1 - p_mask) * MAX
         loss1 = -(F.log_softmax(logit1, dim=-1) * labels).sum(1)
 
         # Rank TH to negative classes
-        logit2 = new_pred - (1 - n_mask) * 1e30
+        logit2 = new_pred - (1 - n_mask) * MAX
         loss2 = -(F.log_softmax(logit2, dim=-1) * th_label).sum(1)
 
         # Sum two parts
