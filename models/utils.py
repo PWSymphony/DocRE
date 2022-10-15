@@ -3,6 +3,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+MIN = 2 ** (-14)
+MAX = 65500
+
 
 class group_biLinear(nn.Module):
     def __init__(self, in_feature, out_feature, block_size):

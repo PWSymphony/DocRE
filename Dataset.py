@@ -85,14 +85,12 @@ class DataModule(LightningDataModule):
         self.batch_size = args.batch_size
         self.num_workers = args.num_workers
 
-        train_file_name = f"train"
-        valid_file_name = f'dev'
-        self.train_dataset = my_dataset(args.data_path, train_file_name)
-        self.val_dataset = my_dataset(args.data_path, valid_file_name)
+        self.train_dataset = my_dataset(args.data_path, f"train")
+        self.val_dataset = my_dataset(args.data_path, f'dev')
+        self.test_dataset = my_dataset(args.data_path, f'test')
 
     def train_dataloader(self):
-        train_sampler = RandomSampler(self.train_dataset)
-        train_dataloader = DataLoader(self.train_dataset, sampler=train_sampler, num_workers=self.num_workers,
+        train_dataloader = DataLoader(self.train_dataset, shuffle=True, num_workers=self.num_workers,
                                       batch_size=self.batch_size, collate_fn=get_batch,
                                       pin_memory=True)
         return train_dataloader
@@ -101,3 +99,8 @@ class DataModule(LightningDataModule):
         val_dataloader = DataLoader(self.val_dataset, batch_size=self.batch_size * 2, collate_fn=get_batch,
                                     num_workers=self.num_workers)
         return val_dataloader
+
+    def test_dataloader(self):
+        test_dataloader = DataLoader(self.test_dataset, batch_size=self.batch_size * 2, collate_fn=get_batch,
+                                     num_workers=self.num_workers)
+        return test_dataloader

@@ -1,10 +1,7 @@
 import torch
 import torch.nn as nn
 
-from .utils import group_biLinear, process_long_input
-
-MIN = 2 ** (-14)
-MAX = 65500
+from .utils import MAX, MIN, group_biLinear, process_long_input
 
 
 class ReModel(nn.Module):

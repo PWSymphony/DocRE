@@ -6,7 +6,7 @@ from itertools import permutations
 from os.path import join as path_join
 
 import torch
-import ujson as json
+import json
 from tqdm import tqdm
 from transformers import AutoTokenizer
 
@@ -191,5 +191,14 @@ class Processor:
                 r = self.rel2id[label['r']]
 
                 type_relation[(h_type, t_type)].add(r)
+        h_relation = defaultdict(set)
+        t_relation = defaultdict(set)
+        for k, v in type_relation.items():
+            h_relation[k[0]].update(v)
+            t_relation[k[1]].update(v)
+
+        for k in type_relation.keys():
+            type_relation[k].update(h_relation[k[0]])
+            type_relation[k].update(t_relation[k[1]])
 
         return {k: list(v) + [0] for k, v in type_relation.items()}

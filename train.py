@@ -14,7 +14,7 @@ from transformers.optimization import get_linear_schedule_with_warmup
 
 from Dataset import DataModule
 from loss import ATLoss, BCELoss
-from models import ReModel
+from models import ReModel, ReModel_Mention
 from process_data import Processor
 from utils import Accuracy, MyLogger, all_accuracy
 
@@ -35,7 +35,7 @@ class PlModel(pl.LightningModule):
         else:
             cls_token_id = [tokenizer.cls_token_id]
             sep_token_id = [tokenizer.sep_token_id]
-        self.model = ReModel(args, AutoModel.from_pretrained(args.bert_name), cls_token_id, sep_token_id)
+        self.model = ReModel_Mention(args, AutoModel.from_pretrained(args.bert_name), cls_token_id, sep_token_id)
         self.loss_fn = LOSS_FN[args.loss_fn](args)
         self.loss_list = []
         self.acc = all_accuracy()
@@ -44,6 +44,19 @@ class PlModel(pl.LightningModule):
         self.acc_NA = Accuracy()
         self.acc_not_NA = Accuracy()
         self.acc_total = Accuracy()
+
+    def configure_optimizers(self):
+        total_step = self.args.total_step
+        PLM = [p for n, p in self.named_parameters() if p.requires_grad and ('bert' in n)]
+        not_PLM = [p for n, p in self.named_parameters() if p.requires_grad and ('bert' not in n)]
+        optimizer = optim.AdamW([{'params': PLM, 'lr': self.args.pre_lr},
+                                 {'params': not_PLM, 'lr': self.args.lr}])
+        scheduler = get_linear_schedule_with_warmup(optimizer=optimizer,
+                                                    num_warmup_steps=int(total_step * self.args.warm_ratio),
+                                                    num_training_steps=total_step)
+        return {"optimizer": optimizer,
+                "lr_scheduler": {"scheduler": scheduler,
+                                 "interval": 'step'}}
 
     def forward(self, batch):
         return self.model(**batch)
@@ -66,19 +79,6 @@ class PlModel(pl.LightningModule):
         self.acc.clear()
         self.loss_list = []
 
-    def configure_optimizers(self):
-        total_step = self.args.total_step
-        PLM = [p for n, p in self.named_parameters() if p.requires_grad and ('bert' in n)]
-        not_PLM = [p for n, p in self.named_parameters() if p.requires_grad and ('bert' not in n)]
-        optimizer = optim.AdamW([{'params': PLM, 'lr': self.args.pre_lr},
-                                 {'params': not_PLM, 'lr': self.args.lr}])
-        scheduler = get_linear_schedule_with_warmup(optimizer=optimizer,
-                                                    num_warmup_steps=int(total_step * self.args.warm_ratio),
-                                                    num_training_steps=total_step)
-        return {"optimizer": optimizer,
-                "lr_scheduler": {"scheduler": scheduler,
-                                 "interval": 'step'}}
-
     def validation_step(self, batch, batch_idx):
         output = self.model(**batch)
         self.loss_fn.push_result(output, batch)
@@ -91,6 +91,13 @@ class PlModel(pl.LightningModule):
         dev_result['loss'] = round(float(loss), 6)
         dev_result['info'] = float(1)
         self.log_dict(dev_result, prog_bar=False)
+
+    def test_step(self, batch, batch_idx):
+        output = self.model(**batch)
+        self.loss_fn.push_result(output, batch)
+
+    def test_epoch_end(self, outputs):
+        self.loss_fn.get_result(is_test=True)
 
     def compute_output(self, output, batch):
         with torch.no_grad():
@@ -145,15 +152,26 @@ def main(args):
     my_log = MyLogger(args)
     callbacks = []
     if args.enable_checkpointing:
-        checkpoint_callback = ModelCheckpoint(save_top_k=1, monitor="all_f1", mode="max", dirpath=args.checkpoint_dir,
-                                              filename=args.save_name)
+        checkpoint_callback = ModelCheckpoint(save_top_k=2,
+                                              save_weights_only=True,
+                                              monitor="all_f1",
+                                              mode="max",
+                                              dirpath=args.checkpoint_dir,
+                                              filename="" + args.save_name + "-{all_f1}")
         callbacks.append(checkpoint_callback)
 
     # ========================================== 开始训练 ==========================================
-    model = PlModel(args)
+
     trainer = pl.Trainer.from_argparse_args(args=args, logger=my_log, callbacks=callbacks, strategy=strategy,
                                             num_sanity_val_steps=0)
-    trainer.fit(model=model, datamodule=datamodule)
+
+    if args.is_test:
+        ckpt = os.path.join(args.args.checkpoint_dir, args.save_name)
+        model = PlModel.load_from_checkpoint(ckpt)
+        trainer.test(model=model, datamodule=datamodule)
+    else:
+        model = PlModel(args)
+        trainer.fit(model=model, datamodule=datamodule)
 
 
 if __name__ == "__main__":
@@ -187,6 +205,7 @@ if __name__ == "__main__":
     parser.add_argument("--meta_path", type=str, default="./data/meta")
     parser.add_argument("--data_type", type=str, default="", choices=['', 'revised'])
     parser.add_argument("--process_data", action='store_true')
+    parser.add_argument("--is_test", action='store_true')
 
     parser.add_argument("--hidden_log", action='store_true')
     parser.add_argument("--log_path", type=str, default=r"./log/")

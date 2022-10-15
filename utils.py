@@ -115,6 +115,7 @@ class MyLogger(LightningLoggerBase):
 
         cur_time = time.strftime('%Y年%m月%d日, %H:%M', time.localtime())
         self.base_log.info(cur_time)
+        self.max_f1 = 0.0
 
     @property
     def name(self):
@@ -137,14 +138,15 @@ class MyLogger(LightningLoggerBase):
         self.base_log.info(out)
 
     @rank_zero_only
-    def log_metrics(self, metrics, step):
+    def log_metrics(self, metrics=None, step=None):
         if 'info' in metrics and metrics['info'] == 0:
             m = f"step:{int(step) + 1:5d} | epoch:{int(metrics['epoch'] + 1):2d} | loss:{metrics['loss']:.6f} | " \
                 f"NA:{metrics['NA']:2.2f} | " \
                 f"not NA:{metrics['not_NA']:2.2f} | total:{metrics['total']:2.2f} | lr:{metrics['lr']:.2e}"
         elif 'info' in metrics and metrics['info'] == 1:
+            self.max_f1 = max(metrics['all_f1'] * 100, self.max_f1)
             m = f"  all_F1:{metrics['all_f1'] * 100:2.2f}  |  ign_F1:{metrics['ign_f1'] * 100:2.2f}  |  " \
-                f"ign_theta_f1: {metrics['ign_theta_f1'] * 100: 2.2f}"
+                f"ign_theta_f1: {metrics['ign_theta_f1'] * 100: 2.2f} | current max f1: {self.max_f1:2.2f}"
         else:
             m = str(metrics)
         self.base_log.info(m)

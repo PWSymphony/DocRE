@@ -26,8 +26,10 @@ class ATLoss(nn.Module):
         have_relation_num = label_mask.sum(-1)
         new_pred = [pred[i, :index] for i, index in enumerate(have_relation_num)]
         labels = [labels[i, :index] for i, index in enumerate(have_relation_num)]
+        # type_mask = [batch['type_mask'][i, :index] for i, index in enumerate(have_relation_num)]
         new_pred = torch.cat(new_pred, dim=0)
         labels = torch.cat(labels, dim=0)
+        # type_mask = torch.cat(type_mask, dim=0)
         # TH label
         th_label = torch.zeros_like(labels, dtype=torch.float).to(labels)
         th_label[:, 0] = 1.0
@@ -38,11 +40,13 @@ class ATLoss(nn.Module):
 
         # Rank positive classes to TH
         logit1 = new_pred - (1 - p_mask) * MAX
-        loss1 = -(F.log_softmax(logit1, dim=-1) * labels).sum(1)
+        loss1 = -(F.log_softmax(logit1, dim=-1) * labels).sum(-1)
+        # loss1 = loss1[type_mask]
 
         # Rank TH to negative classes
         logit2 = new_pred - (1 - n_mask) * MAX
-        loss2 = -(F.log_softmax(logit2, dim=-1) * th_label).sum(1)
+        loss2 = -(F.log_softmax(logit2, dim=-1) * th_label).sum(-1)
+        # loss2 = loss2[type_mask]
 
         # Sum two parts
         loss = loss1 + loss2
