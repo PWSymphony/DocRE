@@ -166,7 +166,7 @@ def main(args):
                                             num_sanity_val_steps=0)
 
     if args.is_test:
-        ckpt = os.path.join(args.args.checkpoint_dir, args.save_name)
+        ckpt = os.path.join(args.checkpoint_dir, args.save_name + '.ckpt')
         model = PlModel.load_from_checkpoint(ckpt)
         trainer.test(model=model, datamodule=datamodule)
     else:

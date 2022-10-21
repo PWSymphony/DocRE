@@ -1,23 +1,25 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
-from .utils import MIN, group_biLinear, process_long_input
+from .utils import MAX, MIN, group_biLinear, process_long_input
 
 
 class ReModel_Mention(nn.Module):
-    def __init__(self, config, bert, cls_token_id, sep_token_id):
+    def __init__(self, args, bert, cls_token_id, sep_token_id):
         super(ReModel_Mention, self).__init__()
-        self.bert = bert.requires_grad_(bool(config.pre_lr))
+        self.bert = bert.requires_grad_(bool(args.pre_lr))
         self.cls_token_id = cls_token_id
         self.sep_token_id = sep_token_id
         bert_hidden_size = self.bert.config.hidden_size
         block_size = 64
 
+        self.bert_emb = bert.get_input_embeddings()
         self.h_dense = nn.Linear(bert_hidden_size, bert_hidden_size)
         self.t_dense = nn.Linear(bert_hidden_size, bert_hidden_size)
         self.hc_dense = nn.Linear(bert_hidden_size, bert_hidden_size)
         self.tc_dense = nn.Linear(bert_hidden_size, bert_hidden_size)
-        self.clas = group_biLinear(bert_hidden_size, config.relation_num, block_size)
+        self.clas = group_biLinear(bert_hidden_size, args.relation_num, block_size)
 
     # @staticmethod
     # def get_ht(context, attention, mention_map, entity_map, hts, ht_mask):
@@ -53,7 +55,7 @@ class ReModel_Mention(nn.Module):
     def get_ht(context, attention, mention_map, entity_map, hts, ht_mask):
         batch_size = context.shape[0]
         mention = mention_map @ context
-        mention_att = mention_map @ attention.mean(dim=1) @ mention_map.permute(0, 2, 1)
+        mention_att = mention_map @ attention.sum(dim=1) @ mention_map.permute(0, 2, 1)
         entity_att = entity_map @ mention_att
         h_mask = torch.stack([entity_map[i, hts[i, :, 0]] for i in range(batch_size)]) * ht_mask
         t_mask = torch.stack([entity_map[i, hts[i, :, 1]] for i in range(batch_size)]) * ht_mask
@@ -65,7 +67,7 @@ class ReModel_Mention(nn.Module):
         h = (t_att @ mention) * ht_mask
         t = (h_att @ mention) * ht_mask
 
-        return h, t
+        return h, t, h_mask, t_mask
 
     @staticmethod
     def context_pooling(context, attention, entity_map, hts, ht_mask):
@@ -100,14 +102,113 @@ class ReModel_Mention(nn.Module):
         ht_mask = (hts.sum(-1) != 0).unsqueeze(-1)
 
         context, attention = process_long_input(self.bert, input_id, input_mask, self.cls_token_id, self.sep_token_id)
-        h, t = self.get_ht(context, attention, mention_map, entity_map, hts, ht_mask)
+        h, t, h_mask, t_mask = self.get_ht(context, attention, mention_map, entity_map, hts, ht_mask)
 
         entity_map = entity_map @ mention_map
         context_info = self.context_pooling(context, attention, entity_map, hts, ht_mask)
 
-        h = torch.tanh(self.h_dense(h) + self.hc_dense(context_info))
-        t = torch.tanh(self.t_dense(t) + self.tc_dense(context_info))
-        res = self.clas(h, t)
-        # res = res - (~kwargs['type_mask']).float() * MAX
+        h_info = self.hc_dense(context_info)
+        t_info = self.tc_dense(context_info)
 
+        h = torch.tanh(self.h_dense(h) + h_info)
+        t = torch.tanh(self.t_dense(t) + t_info)
+        res = self.clas(h, t)
+
+        type_mask = torch.zeros((input_mask.shape[0], 4),
+                                device=input_mask.device,
+                                dtype=input_id.dtype)
+        type_mask = torch.cat((type_mask, input_mask), dim=-1)
+        attention_mask = torch.ones((input_mask.shape[0], 4),
+                                    device=input_mask.device,
+                                    dtype=input_id.dtype)
+        attention_mask = torch.cat((attention_mask, input_mask), dim=-1)
+        sep_emb = torch.tensor([self.sep_token_id], dtype=input_id.dtype,
+                               device=input_id.device).repeat(input_id.shape[0], 1)
+        input_emb = self.bert_emb(torch.cat((input_id[:, :1], sep_emb, input_id[:, 1:]), dim=-1)).unsqueeze(1)
+        input_emb = input_emb.repeat(1, h.shape[1], 1, 1)
+        input_emb = torch.cat([input_emb[:, :, :1], h.unsqueeze(2), t.unsqueeze(2), context_info.unsqueeze(2),
+                               input_emb[:, :, 1:]], dim=-2)
+        # res = res - (~kwargs['type_mask']).float() * MAX
         return res
+
+
+def process_long_input_emb(model, input_ids, attention_mask, type_mask, start_tokens, end_tokens):
+    n, c, h = input_ids.size()
+    start_tokens = torch.tensor(start_tokens).to(input_ids)
+    end_tokens = torch.tensor(end_tokens).to(input_ids)
+    len_start = start_tokens.size(0)
+    len_end = end_tokens.size(0)
+    if c <= 512:
+        output = model(input_ids=input_ids, attention_mask=attention_mask)
+        sequence_output = output[0]
+    else:
+        new_input_ids, new_attention_mask, num_seg = [], [], []
+        seq_len = attention_mask.sum(1).cpu().tolist()
+        for i, l_i in enumerate(seq_len):
+            if l_i <= 512:
+                new_input_ids.append(input_ids[i, :512])
+                new_attention_mask.append(attention_mask[i, :512])
+                num_seg.append(1)
+            else:
+                input_ids1 = torch.cat([input_ids[i, :512 - len_end], end_tokens], dim=-1)
+                input_ids2 = torch.cat([start_tokens, input_ids[i, (l_i - 512 + len_start): l_i]], dim=-1)
+                attention_mask1 = attention_mask[i, :512]
+                attention_mask2 = attention_mask[i, (l_i - 512): l_i]
+                new_input_ids.extend([input_ids1, input_ids2])
+                new_attention_mask.extend([attention_mask1, attention_mask2])
+                num_seg.append(2)
+        input_ids = torch.stack(new_input_ids, dim=0)
+        attention_mask = torch.stack(new_attention_mask, dim=0)
+        output = model(input_ids=input_ids, attention_mask=attention_mask)
+        sequence_output = output[0]
+        i = 0
+        new_output = []
+        for (n_s, l_i) in zip(num_seg, seq_len):
+            if n_s == 1:
+                output = F.pad(sequence_output[i], (0, 0, 0, c - 512))
+                new_output.append(output)
+            elif n_s == 2:
+                output1 = sequence_output[i][:512 - len_end]
+                mask1 = attention_mask[i][:512 - len_end]
+                output1 = F.pad(output1, (0, 0, 0, c - 512 + len_end))
+                mask1 = F.pad(mask1, (0, c - 512 + len_end))
+
+                output2 = sequence_output[i + 1][len_start:]
+                mask2 = attention_mask[i + 1][len_start:]
+                output2 = F.pad(output2, (0, 0, l_i - 512 + len_start, c - l_i))
+                mask2 = F.pad(mask2, (l_i - 512 + len_start, c - l_i))
+                mask = mask1 + mask2 + 1e-10
+                output = (output1 + output2) / mask.unsqueeze(-1)
+                new_output.append(output)
+            i += n_s
+        sequence_output = torch.stack(new_output, dim=0)
+    return sequence_output
+
+
+class MentionAttention(nn.Module):
+    def __init__(self, args, hidden_size):
+        super(MentionAttention, self).__init__()
+        self.q_dense = nn.Linear(args.relation_num, hidden_size)
+        self.k_dense = nn.Linear(hidden_size, hidden_size)
+        self.head = 1
+        self.scale = (hidden_size / self.head) ** -0.5
+
+    def forward(self, res, mention, h_mask, t_mask):
+        # q = self.q_dense(res).reshape(res.shape[0], res.shape[1], self.head, -1)
+        # k = self.k_dense(mention).reshape(mention.shape[0], mention.shape[1], self.head, -1)
+        # q = q.permute(0, 2, 1, 3)
+        # k = k.permute(0, 2, 3, 1)
+
+        q = self.q_dense(res)
+        k = self.k_dense(mention).permute(0, 2, 1)
+        att = q @ k * self.scale
+        h_att = att - (1 - t_mask) * MAX
+        t_att = att - (1 - h_mask) * MAX
+
+        h_att = F.softmax(h_att, dim=-1)
+        t_att = F.softmax(t_att, dim=-1)
+
+        h = (t_att @ mention)
+        t = (h_att @ mention)
+
+        return h, t
