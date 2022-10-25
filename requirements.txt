@@ -1,0 +1,7 @@
+dgl==0.9.1
+numpy==1.21.2
+pytorch_lightning==1.6.5
+torch==1.9.1
+tqdm==4.62.3
+transformers==4.19.4
+~gl_cu113==0.8.0.post1

@@ -47,6 +47,8 @@ def get_batch(batch):
     all_label2in_train = []
     all_test_idxs = []
 
+    graphs = []
+
     for idx, b in enumerate(batch):
         input_ids[idx, :len(b['input_id'])] = b['input_id']
         input_mask[idx, :len(b['input_id'])] = 1
@@ -64,6 +66,8 @@ def get_batch(batch):
         all_test_idxs.append(b['hts'].tolist())
         all_label2in_train.append(b['label2in_train'])
 
+        graphs.append(b['graph'])
+
     return dict(input_id=input_ids,
                 input_mask=input_mask,
                 mention_map=mention_map,
@@ -76,7 +80,8 @@ def get_batch(batch):
                 titles=titles,
                 indexes=indexes,
                 labels=all_label2in_train,
-                all_test_idxs=all_test_idxs)
+                all_test_idxs=all_test_idxs,
+                graphs=graphs)
 
 
 class DataModule(LightningDataModule):

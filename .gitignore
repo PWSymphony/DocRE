@@ -139,7 +139,7 @@ cython_debug/
 
 data/raw
 checkpoint/
-log/
+test.txt
 my_data/
 wandb/
 *.pt

@@ -14,7 +14,7 @@ from transformers.optimization import get_linear_schedule_with_warmup
 
 from Dataset import DataModule
 from loss import ATLoss, BCELoss
-from models import ReModel, ReModel_Mention
+from models import ReModel, ReModel_Mention, ReModel_Graph
 from process_data import Processor
 from utils import Accuracy, MyLogger, all_accuracy
 
@@ -35,7 +35,7 @@ class PlModel(pl.LightningModule):
         else:
             cls_token_id = [tokenizer.cls_token_id]
             sep_token_id = [tokenizer.sep_token_id]
-        self.model = ReModel_Mention(args, AutoModel.from_pretrained(args.bert_name), cls_token_id, sep_token_id)
+        self.model = ReModel_Graph(args, AutoModel.from_pretrained(args.bert_name), cls_token_id, sep_token_id)
         self.loss_fn = LOSS_FN[args.loss_fn](args)
         self.loss_list = []
         self.acc = all_accuracy()
@@ -182,10 +182,10 @@ if __name__ == "__main__":
     parser.add_argument("--devices", type=int, nargs='+', default=[0])
     parser.add_argument("--max_epochs", type=int, default=30)
     parser.add_argument("--precision", type=int, default=16)
+    parser.add_argument("--gradient_clip_val", type=float, default=1.0)
     parser.add_argument("--log_every_n_steps", type=int, default=200)
     parser.add_argument("--enable_checkpointing", action='store_true')
     parser.add_argument("--enable_progress_bar", action='store_true')
-    parser.add_argument("--gradient_clip_val", type=float, default=1.0)
 
     parser.add_argument("--loss_fn", type=str, default="ATL", choices=['BCE', "ATL"])
     parser.add_argument("--lr", type=float, default=1e-4)

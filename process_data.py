@@ -1,12 +1,13 @@
 import _pickle as pickle
 import argparse
+import json
 import zipfile
 from collections import defaultdict
 from itertools import permutations
 from os.path import join as path_join
 
+import dgl
 import torch
-import json
 from tqdm import tqdm
 from transformers import AutoTokenizer
 
@@ -165,6 +166,13 @@ class Processor:
             item['relations'] = torch.tensor(relations)
             item['label2in_train'] = label2in_train
             item['type_mask'] = torch.stack(all_type_mask, dim=0)
+
+            # =========================== Graph ===========================
+            u = [0] * len(hts)
+            v = list(range(1, len(hts) + 1))
+            graph = dgl.to_bidirected(dgl.graph((u, v)))
+            graph = dgl.add_self_loop(graph)
+            item['graph'] = graph
 
             data.append(item)
 

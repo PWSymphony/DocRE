@@ -1,12 +1,12 @@
 from functools import partial
 
 import dgl
-import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_sequence
 
-from .utils import MIN, group_biLinear, process_long_input
+from . import MIN, group_biLinear, process_long_input
 
 pad_sequence = partial(pad_sequence, batch_first=True)
 
@@ -17,22 +17,20 @@ class ReModel_Graph(nn.Module):
         self.bert = bert.requires_grad_(bool(config.pre_lr))
         self.cls_token_id = cls_token_id
         self.sep_token_id = sep_token_id
+
         bert_hidden_size = self.bert.config.hidden_size
         block_size = 64
+        graph_feature_size = 256
 
-        self.hb_dense = nn.Linear(bert_hidden_size * 2, bert_hidden_size)
-        self.tb_dense = nn.Linear(bert_hidden_size * 2, bert_hidden_size)
+        self.h_dense = nn.Linear(bert_hidden_size, bert_hidden_size)
+        self.t_dense = nn.Linear(bert_hidden_size, bert_hidden_size)
+        self.hc_dense = nn.Linear(bert_hidden_size, bert_hidden_size)
+        self.tc_dense = nn.Linear(bert_hidden_size, bert_hidden_size)
+        self.clas = group_biLinear(bert_hidden_size, graph_feature_size, block_size)
+        self.CLS_dense = nn.Linear(bert_hidden_size, graph_feature_size)
 
-        self.bin_clas = group_biLinear(bert_hidden_size, 2, block_size)
-        self.relation_clas = group_biLinear(bert_hidden_size, config.relation_num, block_size)
-        self.h_dense = nn.Linear(bert_hidden_size * 2, bert_hidden_size)
-        self.t_dense = nn.Linear(bert_hidden_size * 2, bert_hidden_size)
-
-        self.EGATConv = dgl.nn.pytorch.EGATConv(in_node_feats=bert_hidden_size,
-                                                in_edge_feats=bert_hidden_size,
-                                                out_node_feats=block_size,
-                                                out_edge_feats=block_size,
-                                                num_heads=bert_hidden_size // block_size)
+        self.GATs = GATs(graph_feature_size, graph_feature_size, graph_feature_size // 64, k=2)
+        self.ffnn = FFNN(graph_feature_size, config.relation_num)
 
     @staticmethod
     def get_ht(context, mention_map, entity_map, hts, ht_mask):
@@ -48,7 +46,7 @@ class ReModel_Graph(nn.Module):
         h = torch.stack([entity[i, hts[i, :, 0]] for i in range(batch_size)]) * ht_mask
         t = torch.stack([entity[i, hts[i, :, 1]] for i in range(batch_size)]) * ht_mask
 
-        return h, t, entity
+        return h, t
 
     @staticmethod
     def context_pooling(context, attention, entity_map, hts, ht_mask):
@@ -73,6 +71,24 @@ class ReModel_Graph(nn.Module):
         context_info = context_attention @ context
         return context_info * ht_mask
 
+    def get_graph_feature(self, context, src, ht_num):
+        feature = []
+        for i in range(context.shape[0]):
+            feature.append(self.CLS_dense(context[i, :1]))
+            feature.append(src[i, :ht_num[i]])
+
+        return torch.cat(feature, dim=0)
+
+    @staticmethod
+    def process_res(src, ht_num):
+        max_ht_num = max(ht_num)
+        src = torch.split(src, (ht_num + 1).tolist(), dim=0)
+        res = []
+        for i in range(ht_num.shape[0]):
+            res.append(F.pad(src[i][1:], (0, 0, 0, max_ht_num - src[i].shape[0] + 1)))
+
+        return torch.stack(res, dim=0)
+
     def forward(self, **kwargs):
         input_id = kwargs['input_id']
         input_mask = kwargs['input_mask']
@@ -83,71 +99,52 @@ class ReModel_Graph(nn.Module):
         ht_mask = (hts.sum(-1) != 0).unsqueeze(-1)
 
         context, attention = process_long_input(self.bert, input_id, input_mask, self.cls_token_id, self.sep_token_id)
-        h, t, entity = self.get_ht(context, mention_map, entity_map, hts, ht_mask)
+        h, t = self.get_ht(context, mention_map, entity_map, hts, ht_mask)
+        context_info = self.context_pooling(context, attention, entity_map @ mention_map, hts, ht_mask)
 
-        entity_map = entity_map @ mention_map
-        context_info = self.context_pooling(context, attention, entity_map, hts, ht_mask)
+        h = torch.tanh(self.h_dense(h) + self.hc_dense(context_info))
+        t = torch.tanh(self.t_dense(t) + self.tc_dense(context_info))
+        node_feature = self.clas(h, t)
 
-        graphs, node_feature, edge_feature, other_feature, edge_num, edge_index, restore_index \
-            = create_graph(bin_res, hts, context_info, entity)
+        ht_num = ht_mask.squeeze(-1).sum(-1)
+        graph = dgl.batch(kwargs['graphs'])
+        node_feature = self.get_graph_feature(context, node_feature, ht_num)
+        new_node_feature = self.GATs(graph, node_feature)
+        node_feature = self.ffnn(node_feature + new_node_feature)
+        res = self.process_res(src=node_feature, ht_num=ht_num)
 
-        graphs = dgl.batch(graphs)
-        graphs = dgl.add_self_loop(graphs)
-        node_feature, edge_feature = self.EGATConv(graphs, node_feature, torch.cat([edge_feature, node_feature], dim=0))
-        context_info = get_res(edge_feature, context_info, edge_num, other_feature, restore_index)
-        new_h, new_t = get_new_ht(node_feature, hts, [len(x) for x in entity])
-        new_h = torch.tanh(self.h_dense(torch.cat((new_h, context_info), dim=-1)))
-        new_t = torch.tanh(self.t_dense(torch.cat((new_t, context_info), dim=-1)))
-        relation_res = self.relation_clas(new_h, new_t)
-
-        return relation_res
+        return res
 
 
-def create_graph(bin_res, hts, context_info, entity):
-    batch_size = context_info.shape[0]
-    entity_num = [len(x) for x in entity]
-    edge_index = bin_res.argmax(dim=-1).bool().cpu().numpy()
+class GAT(nn.Module):
+    def __init__(self, in_feature, out_feature, heads):
+        super().__init__()
+        self.GAT = dgl.nn.GATv2Conv(in_feature, out_feature, num_heads=heads, feat_drop=0.1, residual=True)
+        self.dense = nn.Linear(heads * out_feature, out_feature)
 
-    graphs = []
-    edge_feature = []
-    other_feature = []
-    restore_index = []
-    edge_num = []
-    for i in range(batch_size):
-        edge_index[i][len(hts[0][0]):] = False
-        index = np.concatenate((edge_index[i].nonzero()[0], (~edge_index[i]).nonzero()[0]), axis=0)
-        restore_index.append(np.argsort(index, axis=-1))
-        edge_list = hts[i][:, edge_index[i, :hts[i].shape[-1]].tolist()]
-        edge_num.append(edge_list.shape[-1])
-        graph = dgl.graph((edge_list[0], edge_list[1]), num_nodes=entity_num[i])
-        edge_feature.append(context_info[i][edge_index[i]])
-        other_feature.append(context_info[i][~edge_index[i]])
-        graphs.append(graph.to(bin_res.device))
-    return \
-        graphs, torch.cat(entity, dim=0), torch.cat(edge_feature, dim=0), \
-        other_feature, edge_num, edge_index, restore_index
+    def forward(self, graph, node_feature):
+        output = self.GAT(graph, node_feature)
+        output = self.dense(output.reshape(output.shape[0], -1))
+        return torch.relu(output)
 
 
-def get_res(edge_feature, context_info, edge_num, other_feature, restore_index):
-    batch_size = len(other_feature)
-    edge_feature = edge_feature.reshape(edge_feature.shape[0], -1)
-    edge_num.append(int(edge_feature.shape[0]) - sum(edge_num))
-    edge_feature = torch.split(edge_feature, edge_num, dim=0)
-    res = []
-    for i in range(batch_size):
-        temp = torch.cat((edge_feature[i], other_feature[i]), dim=0)
-        temp = temp[restore_index[i]]
+class GATs(nn.Module):
+    def __init__(self, in_feature, out_feature, heads, k=1):
+        super(GATs, self).__init__()
+        self.nets = nn.ModuleList([GAT(in_feature, out_feature, heads) for _ in range(k)])
 
-        res.append(temp)
-    return torch.stack(res, dim=0)
+    def forward(self, graph, node_feature):
+        for net in self.nets:
+            node_feature = net(graph, node_feature)
+
+        return node_feature
 
 
-def get_new_ht(node_feature, hts, entity_num):
-    node_feature = node_feature.reshape(node_feature.shape[0], -1)
-    entity = torch.split(node_feature, entity_num, dim=0)
-    new_h, new_t = [], []
-    for i in range(len(entity_num)):
-        new_h.append(entity[i][hts[i][0], :])
-        new_t.append(entity[i][hts[i][1], :])
+class FFNN(nn.Module):
+    def __init__(self, in_feature, out_feature):
+        super(FFNN, self).__init__()
+        self.dense1 = nn.Linear(in_feature, out_feature * 3)
+        self.dense2 = nn.Linear(out_feature * 3, out_feature)
 
-    return pad_sequence(new_h), pad_sequence(new_t)
+    def forward(self, src):
+        return self.dense2(torch.relu(self.dense1(src)))
