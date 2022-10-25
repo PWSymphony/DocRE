@@ -1,0 +1,196 @@
+Global seed set to 0
+2022年10月14日, 22:24
+Using 16bit native Automatic Mixed Precision (AMP)
+GPU available: True, used: True
+TPU available: False, using: 0 TPU cores
+IPU available: False, using: 0 IPUs
+HPU available: False, using: 0 HPUs
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+
+  | Name    | Type            | Params
+--------------------------------------------
+0 | model   | ReModel_Mention | 116 M
+1 | loss_fn | ATLoss          | 0
+--------------------------------------------
+116 M     Trainable params
+0         Non-trainable params
+116 M     Total params
+233.225   Total estimated model params size (MB)
+{
+    "seed": 0,
+    "accelerator": "gpu",
+    "accumulate_grad_batches": 1,
+    "devices": [
+        0
+    ],
+    "max_epochs": 30,
+    "precision": 16,
+    "log_every_n_steps": 200,
+    "enable_checkpointing": false,
+    "enable_progress_bar": false,
+    "gradient_clip_val": 1.0,
+    "loss_fn": "ATL",
+    "lr": 0.0001,
+    "pre_lr": 5e-05,
+    "warm_ratio": 0.06,
+    "relation_num": 97,
+    "data_path": "./data",
+    "result_dir": "./result",
+    "checkpoint_dir": "./checkpoint",
+    "save_name": "test",
+    "bert_name": "bert-base-uncased",
+    "batch_size": 4,
+    "num_workers": 4,
+    "raw_path": "./data/raw",
+    "meta_path": "./data/meta",
+    "data_type": "",
+    "process_data": false,
+    "is_test": false,
+    "hidden_log": false,
+    "log_path": "./log/",
+    "total_step": 22920
+}
+step:  200 | epoch: 1 | loss:1.485361 | NA:87.77 | not NA:0.08 | total:85.12 | lr:7.24e-06
+step:  400 | epoch: 1 | loss:0.829076 | NA:93.78 | not NA:4.22 | total:91.06 | lr:1.45e-05
+step:  600 | epoch: 1 | loss:0.593778 | NA:95.70 | not NA:10.12 | total:93.13 | lr:2.18e-05
+  all_F1:49.53  |  ign_F1:46.99  |  ign_theta_f1:  0.00 | current max f1: 49.53
+step:  800 | epoch: 2 | loss:0.096549 | NA:99.46 | not NA:37.16 | total:97.73 | lr:2.91e-05
+step: 1000 | epoch: 2 | loss:0.099320 | NA:99.37 | not NA:36.92 | total:97.50 | lr:3.63e-05
+step: 1200 | epoch: 2 | loss:0.100059 | NA:99.37 | not NA:37.56 | total:97.51 | lr:4.36e-05
+step: 1400 | epoch: 2 | loss:0.099709 | NA:99.36 | not NA:37.97 | total:97.52 | lr:4.99e-05
+  all_F1:52.96  |  ign_F1:50.56  |  ign_theta_f1:  0.00 | current max f1: 52.96
+step: 1600 | epoch: 3 | loss:0.081682 | NA:99.43 | not NA:46.55 | total:97.97 | lr:4.95e-05
+step: 1800 | epoch: 3 | loss:0.085115 | NA:99.36 | not NA:47.23 | total:97.82 | lr:4.90e-05
+step: 2000 | epoch: 3 | loss:0.081775 | NA:99.36 | not NA:47.73 | total:97.85 | lr:4.86e-05
+step: 2200 | epoch: 3 | loss:0.080593 | NA:99.36 | not NA:48.61 | total:97.85 | lr:4.81e-05
+  all_F1:55.75  |  ign_F1:53.64  |  ign_theta_f1:  0.00 | current max f1: 55.75
+step: 2400 | epoch: 4 | loss:0.064919 | NA:99.44 | not NA:58.46 | total:98.19 | lr:4.76e-05
+step: 2600 | epoch: 4 | loss:0.066099 | NA:99.40 | not NA:56.96 | total:98.14 | lr:4.72e-05
+step: 2800 | epoch: 4 | loss:0.064043 | NA:99.43 | not NA:57.32 | total:98.20 | lr:4.67e-05
+step: 3000 | epoch: 4 | loss:0.065152 | NA:99.42 | not NA:57.66 | total:98.18 | lr:4.62e-05
+  all_F1:57.12  |  ign_F1:55.52  |  ign_theta_f1:  0.00 | current max f1: 57.12
+step: 3200 | epoch: 5 | loss:0.051077 | NA:99.54 | not NA:65.75 | total:98.56 | lr:4.58e-05
+step: 3400 | epoch: 5 | loss:0.052632 | NA:99.53 | not NA:65.36 | total:98.53 | lr:4.53e-05
+step: 3600 | epoch: 5 | loss:0.053197 | NA:99.51 | not NA:65.28 | total:98.50 | lr:4.48e-05
+step: 3800 | epoch: 5 | loss:0.053839 | NA:99.50 | not NA:65.12 | total:98.48 | lr:4.44e-05
+  all_F1:57.58  |  ign_F1:55.32  |  ign_theta_f1:  0.00 | current max f1: 57.58
+step: 4000 | epoch: 6 | loss:0.041326 | NA:99.62 | not NA:72.55 | total:98.83 | lr:4.39e-05
+step: 4200 | epoch: 6 | loss:0.043107 | NA:99.59 | not NA:72.41 | total:98.78 | lr:4.34e-05
+step: 4400 | epoch: 6 | loss:0.044487 | NA:99.57 | not NA:72.19 | total:98.75 | lr:4.30e-05
+  all_F1:57.31  |  ign_F1:55.04  |  ign_theta_f1:  0.00 | current max f1: 57.58
+step: 4600 | epoch: 7 | loss:0.042579 | NA:99.68 | not NA:76.12 | total:99.01 | lr:4.25e-05
+step: 4800 | epoch: 7 | loss:0.039493 | NA:99.62 | not NA:76.19 | total:98.92 | lr:4.21e-05
+step: 5000 | epoch: 7 | loss:0.037530 | NA:99.63 | not NA:77.30 | total:98.97 | lr:4.16e-05
+step: 5200 | epoch: 7 | loss:0.037937 | NA:99.63 | not NA:77.06 | total:98.96 | lr:4.11e-05
+  all_F1:57.87  |  ign_F1:55.55  |  ign_theta_f1:  0.00 | current max f1: 57.87
+step: 5400 | epoch: 8 | loss:0.034419 | NA:99.68 | not NA:82.25 | total:99.14 | lr:4.07e-05
+step: 5600 | epoch: 8 | loss:0.032624 | NA:99.68 | not NA:81.14 | total:99.13 | lr:4.02e-05
+step: 5800 | epoch: 8 | loss:0.032635 | NA:99.68 | not NA:81.17 | total:99.13 | lr:3.97e-05
+step: 6000 | epoch: 8 | loss:0.032676 | NA:99.68 | not NA:80.91 | total:99.12 | lr:3.93e-05
+  all_F1:57.56  |  ign_F1:55.69  |  ign_theta_f1:  0.00 | current max f1: 57.87
+step: 6200 | epoch: 9 | loss:0.026816 | NA:99.75 | not NA:84.58 | total:99.29 | lr:3.88e-05
+step: 6400 | epoch: 9 | loss:0.026300 | NA:99.74 | not NA:84.40 | total:99.29 | lr:3.83e-05
+step: 6600 | epoch: 9 | loss:0.027358 | NA:99.74 | not NA:84.64 | total:99.29 | lr:3.79e-05
+step: 6800 | epoch: 9 | loss:0.027967 | NA:99.74 | not NA:84.43 | total:99.28 | lr:3.74e-05
+  all_F1:58.78  |  ign_F1:56.68  |  ign_theta_f1:  0.00 | current max f1: 58.78
+step: 7000 | epoch:10 | loss:0.023182 | NA:99.78 | not NA:87.26 | total:99.39 | lr:3.69e-05
+step: 7200 | epoch:10 | loss:0.023362 | NA:99.78 | not NA:87.54 | total:99.41 | lr:3.65e-05
+step: 7400 | epoch:10 | loss:0.023298 | NA:99.78 | not NA:87.73 | total:99.42 | lr:3.60e-05
+step: 7600 | epoch:10 | loss:0.023605 | NA:99.78 | not NA:87.52 | total:99.42 | lr:3.56e-05
+  all_F1:58.34  |  ign_F1:56.39  |  ign_theta_f1:  0.00 | current max f1: 58.78
+step: 7800 | epoch:11 | loss:0.023111 | NA:99.81 | not NA:88.64 | total:99.48 | lr:3.51e-05
+step: 8000 | epoch:11 | loss:0.021542 | NA:99.82 | not NA:89.39 | total:99.51 | lr:3.46e-05
+step: 8200 | epoch:11 | loss:0.021773 | NA:99.81 | not NA:89.34 | total:99.50 | lr:3.42e-05
+step: 8400 | epoch:11 | loss:0.021603 | NA:99.81 | not NA:89.16 | total:99.50 | lr:3.37e-05
+  all_F1:58.33  |  ign_F1:55.80  |  ign_theta_f1:  0.00 | current max f1: 58.78
+step: 8600 | epoch:12 | loss:0.019063 | NA:99.83 | not NA:91.16 | total:99.57 | lr:3.32e-05
+step: 8800 | epoch:12 | loss:0.018351 | NA:99.84 | not NA:91.47 | total:99.59 | lr:3.28e-05
+step: 9000 | epoch:12 | loss:0.018417 | NA:99.84 | not NA:91.40 | total:99.59 | lr:3.23e-05
+  all_F1:59.47  |  ign_F1:57.41  |  ign_theta_f1:  0.00 | current max f1: 59.47
+step: 9200 | epoch:13 | loss:0.018466 | NA:99.81 | not NA:92.20 | total:99.61 | lr:3.18e-05
+step: 9400 | epoch:13 | loss:0.017815 | NA:99.85 | not NA:92.18 | total:99.63 | lr:3.14e-05
+step: 9600 | epoch:13 | loss:0.017395 | NA:99.86 | not NA:92.56 | total:99.65 | lr:3.09e-05
+step: 9800 | epoch:13 | loss:0.017101 | NA:99.86 | not NA:92.67 | total:99.65 | lr:3.05e-05
+  all_F1:58.36  |  ign_F1:56.35  |  ign_theta_f1:  0.00 | current max f1: 59.47
+step:10000 | epoch:14 | loss:0.014067 | NA:99.89 | not NA:94.69 | total:99.73 | lr:3.00e-05
+step:10200 | epoch:14 | loss:0.014133 | NA:99.90 | not NA:94.30 | total:99.73 | lr:2.95e-05
+step:10400 | epoch:14 | loss:0.014388 | NA:99.90 | not NA:94.20 | total:99.73 | lr:2.91e-05
+step:10600 | epoch:14 | loss:0.014271 | NA:99.90 | not NA:94.41 | total:99.74 | lr:2.86e-05
+  all_F1:59.52  |  ign_F1:57.41  |  ign_theta_f1:  0.00 | current max f1: 59.52
+step:10800 | epoch:15 | loss:0.013861 | NA:99.90 | not NA:95.48 | total:99.77 | lr:2.81e-05
+step:11000 | epoch:15 | loss:0.013195 | NA:99.91 | not NA:95.39 | total:99.77 | lr:2.77e-05
+step:11200 | epoch:15 | loss:0.013282 | NA:99.91 | not NA:95.32 | total:99.77 | lr:2.72e-05
+step:11400 | epoch:15 | loss:0.013043 | NA:99.91 | not NA:95.42 | total:99.78 | lr:2.67e-05
+  all_F1:60.00  |  ign_F1:58.11  |  ign_theta_f1:  0.00 | current max f1: 60.00
+step:11600 | epoch:16 | loss:0.012437 | NA:99.94 | not NA:95.92 | total:99.82 | lr:2.63e-05
+step:11800 | epoch:16 | loss:0.011830 | NA:99.93 | not NA:96.24 | total:99.82 | lr:2.58e-05
+step:12000 | epoch:16 | loss:0.012036 | NA:99.93 | not NA:96.14 | total:99.81 | lr:2.53e-05
+step:12200 | epoch:16 | loss:0.011938 | NA:99.93 | not NA:96.10 | total:99.81 | lr:2.49e-05
+  all_F1:60.15  |  ign_F1:58.06  |  ign_theta_f1:  0.00 | current max f1: 60.15
+step:12400 | epoch:17 | loss:0.012037 | NA:99.95 | not NA:97.00 | total:99.86 | lr:2.44e-05
+step:12600 | epoch:17 | loss:0.011049 | NA:99.94 | not NA:96.93 | total:99.85 | lr:2.40e-05
+step:12800 | epoch:17 | loss:0.010669 | NA:99.94 | not NA:96.89 | total:99.85 | lr:2.35e-05
+  all_F1:60.09  |  ign_F1:57.81  |  ign_theta_f1:  0.00 | current max f1: 60.15
+step:13000 | epoch:18 | loss:0.010877 | NA:99.95 | not NA:98.35 | total:99.89 | lr:2.30e-05
+step:13200 | epoch:18 | loss:0.010764 | NA:99.95 | not NA:97.20 | total:99.87 | lr:2.26e-05
+step:13400 | epoch:18 | loss:0.010096 | NA:99.95 | not NA:97.39 | total:99.87 | lr:2.21e-05
+step:13600 | epoch:18 | loss:0.010092 | NA:99.95 | not NA:97.27 | total:99.87 | lr:2.16e-05
+  all_F1:60.18  |  ign_F1:58.11  |  ign_theta_f1:  0.00 | current max f1: 60.18
+step:13800 | epoch:19 | loss:0.009365 | NA:99.97 | not NA:97.75 | total:99.90 | lr:2.12e-05
+step:14000 | epoch:19 | loss:0.009313 | NA:99.96 | not NA:98.04 | total:99.90 | lr:2.07e-05
+step:14200 | epoch:19 | loss:0.008995 | NA:99.96 | not NA:98.12 | total:99.91 | lr:2.02e-05
+step:14400 | epoch:19 | loss:0.009015 | NA:99.96 | not NA:98.06 | total:99.91 | lr:1.98e-05
+  all_F1:60.01  |  ign_F1:58.10  |  ign_theta_f1:  0.00 | current max f1: 60.18
+step:14600 | epoch:20 | loss:0.009805 | NA:99.95 | not NA:98.17 | total:99.90 | lr:1.93e-05
+step:14800 | epoch:20 | loss:0.008953 | NA:99.96 | not NA:98.31 | total:99.91 | lr:1.88e-05
+step:15000 | epoch:20 | loss:0.008696 | NA:99.97 | not NA:98.32 | total:99.92 | lr:1.84e-05
+step:15200 | epoch:20 | loss:0.008487 | NA:99.97 | not NA:98.28 | total:99.92 | lr:1.79e-05
+  all_F1:60.47  |  ign_F1:58.17  |  ign_theta_f1:  0.00 | current max f1: 60.47
+step:15400 | epoch:21 | loss:0.008509 | NA:99.97 | not NA:98.83 | total:99.94 | lr:1.75e-05
+step:15600 | epoch:21 | loss:0.007880 | NA:99.97 | not NA:98.66 | total:99.93 | lr:1.70e-05
+step:15800 | epoch:21 | loss:0.007910 | NA:99.97 | not NA:98.69 | total:99.93 | lr:1.65e-05
+step:16000 | epoch:21 | loss:0.007815 | NA:99.97 | not NA:98.68 | total:99.94 | lr:1.61e-05
+  all_F1:60.64  |  ign_F1:58.58  |  ign_theta_f1:  0.00 | current max f1: 60.64
+step:16200 | epoch:22 | loss:0.007467 | NA:99.98 | not NA:98.99 | total:99.95 | lr:1.56e-05
+step:16400 | epoch:22 | loss:0.007349 | NA:99.98 | not NA:98.86 | total:99.95 | lr:1.51e-05
+step:16600 | epoch:22 | loss:0.007341 | NA:99.98 | not NA:98.88 | total:99.95 | lr:1.47e-05
+step:16800 | epoch:22 | loss:0.007235 | NA:99.98 | not NA:98.97 | total:99.95 | lr:1.42e-05
+  all_F1:60.68  |  ign_F1:58.73  |  ign_theta_f1:  0.00 | current max f1: 60.68
+step:17000 | epoch:23 | loss:0.006562 | NA:99.98 | not NA:99.20 | total:99.96 | lr:1.37e-05
+step:17200 | epoch:23 | loss:0.006584 | NA:99.99 | not NA:99.16 | total:99.96 | lr:1.33e-05
+step:17400 | epoch:23 | loss:0.006607 | NA:99.99 | not NA:99.22 | total:99.96 | lr:1.28e-05
+  all_F1:61.12  |  ign_F1:59.02  |  ign_theta_f1:  0.00 | current max f1: 61.12
+step:17600 | epoch:24 | loss:0.005666 | NA:100.00 | not NA:99.52 | total:99.98 | lr:1.23e-05
+step:17800 | epoch:24 | loss:0.006174 | NA:99.99 | not NA:99.45 | total:99.98 | lr:1.19e-05
+step:18000 | epoch:24 | loss:0.006084 | NA:99.99 | not NA:99.47 | total:99.97 | lr:1.14e-05
+step:18200 | epoch:24 | loss:0.006139 | NA:99.99 | not NA:99.48 | total:99.97 | lr:1.10e-05
+  all_F1:61.03  |  ign_F1:58.96  |  ign_theta_f1:  0.00 | current max f1: 61.12
+step:18400 | epoch:25 | loss:0.006543 | NA:99.99 | not NA:99.59 | total:99.98 | lr:1.05e-05
+step:18600 | epoch:25 | loss:0.005841 | NA:99.99 | not NA:99.58 | total:99.98 | lr:1.00e-05
+step:18800 | epoch:25 | loss:0.005974 | NA:99.99 | not NA:99.56 | total:99.98 | lr:9.56e-06
+step:19000 | epoch:25 | loss:0.005841 | NA:99.99 | not NA:99.56 | total:99.98 | lr:9.10e-06
+  all_F1:61.07  |  ign_F1:59.06  |  ign_theta_f1:  0.00 | current max f1: 61.12
+step:19200 | epoch:26 | loss:0.005073 | NA:99.99 | not NA:99.75 | total:99.99 | lr:8.64e-06
+step:19400 | epoch:26 | loss:0.005480 | NA:99.99 | not NA:99.72 | total:99.98 | lr:8.17e-06
+step:19600 | epoch:26 | loss:0.005508 | NA:99.99 | not NA:99.73 | total:99.98 | lr:7.71e-06
+step:19800 | epoch:26 | loss:0.005384 | NA:99.99 | not NA:99.71 | total:99.98 | lr:7.24e-06
+  all_F1:61.14  |  ign_F1:59.11  |  ign_theta_f1:  0.00 | current max f1: 61.14
+step:20000 | epoch:27 | loss:0.005233 | NA:99.99 | not NA:99.70 | total:99.98 | lr:6.78e-06
+step:20200 | epoch:27 | loss:0.005046 | NA:99.99 | not NA:99.69 | total:99.99 | lr:6.31e-06
+step:20400 | epoch:27 | loss:0.005006 | NA:100.00 | not NA:99.70 | total:99.99 | lr:5.85e-06
+step:20600 | epoch:27 | loss:0.005023 | NA:100.00 | not NA:99.71 | total:99.99 | lr:5.39e-06
+  all_F1:61.48  |  ign_F1:59.47  |  ign_theta_f1:  0.00 | current max f1: 61.48
+step:20800 | epoch:28 | loss:0.004648 | NA:100.00 | not NA:99.80 | total:99.99 | lr:4.92e-06
+step:21000 | epoch:28 | loss:0.004774 | NA:99.99 | not NA:99.78 | total:99.99 | lr:4.46e-06
+step:21200 | epoch:28 | loss:0.004723 | NA:100.00 | not NA:99.79 | total:99.99 | lr:3.99e-06
+  all_F1:61.66  |  ign_F1:59.64  |  ign_theta_f1:  0.00 | current max f1: 61.66
+step:21400 | epoch:29 | loss:0.003828 | NA:99.98 | not NA:100.00 | total:99.98 | lr:3.53e-06
+step:21600 | epoch:29 | loss:0.004328 | NA:100.00 | not NA:99.82 | total:99.99 | lr:3.07e-06
+step:21800 | epoch:29 | loss:0.004245 | NA:100.00 | not NA:99.85 | total:99.99 | lr:2.60e-06
+step:22000 | epoch:29 | loss:0.004385 | NA:100.00 | not NA:99.85 | total:99.99 | lr:2.14e-06
+  all_F1:61.48  |  ign_F1:59.40  |  ign_theta_f1:  0.00 | current max f1: 61.66
+step:22200 | epoch:30 | loss:0.004443 | NA:100.00 | not NA:99.76 | total:99.99 | lr:1.67e-06
+step:22400 | epoch:30 | loss:0.004069 | NA:100.00 | not NA:99.79 | total:99.99 | lr:1.21e-06
+step:22600 | epoch:30 | loss:0.004216 | NA:100.00 | not NA:99.83 | total:99.99 | lr:7.45e-07
+step:22800 | epoch:30 | loss:0.004180 | NA:100.00 | not NA:99.82 | total:99.99 | lr:2.81e-07
+  all_F1:61.47  |  ign_F1:59.39  |  ign_theta_f1:  0.00 | current max f1: 61.66
