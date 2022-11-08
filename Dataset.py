@@ -1,4 +1,4 @@
-import _pickle as pickle
+import pickle
 import os
 import zipfile
 
@@ -32,6 +32,7 @@ def get_batch(batch):
     relation_num = batch[0]['relations'].shape[-1]
     max_mention_num = max([b['mention_num'] for b in batch])
     max_entity_num = max([b['entity_num'] for b in batch])
+    max_sent_num = max(b['sent_map'].shape[0] for b in batch)
 
     input_ids = torch.zeros(batch_size, max_len, dtype=torch.long)
     input_mask = torch.zeros(batch_size, max_len, dtype=torch.float)
@@ -40,14 +41,14 @@ def get_batch(batch):
     hts = torch.zeros(batch_size, max_ht_num, 2, dtype=torch.int64)
     relations = torch.zeros(batch_size, max_ht_num, relation_num, dtype=torch.float32)
     relation_mask = torch.zeros(batch_size, max_ht_num, dtype=torch.bool)
-    type_mask = torch.zeros(batch_size, max_ht_num, relation_num, dtype=torch.bool)
+    evidences = torch.zeros((batch_size, max_ht_num, max_sent_num), dtype=torch.float32)
+    sent_mask = torch.zeros((batch_size, max_sent_num), dtype=torch.bool)
+    sent_map = torch.zeros(batch_size, max_sent_num, max_len, dtype=torch.float32)
 
     indexes = []
     titles = []
     all_label2in_train = []
     all_test_idxs = []
-
-    graphs = []
 
     for idx, b in enumerate(batch):
         input_ids[idx, :len(b['input_id'])] = b['input_id']
@@ -58,15 +59,16 @@ def get_batch(batch):
 
         relations[idx, :len(b['relations'])] = b['relations']
         relation_mask[idx, :len(b['relations'])] = True
-        type_mask[idx, :len(b['relations'])] = b['type_mask']
+
+        evidences[idx, :b['evidences'].shape[0], :b['evidences'].shape[1]] = b['evidences']
+        sent_mask[idx, :b['evidences'].shape[1]] = True
+        sent_map[idx, :b['sent_map'].shape[0], :b['sent_map'].shape[1]] = b['sent_map']
 
         # for test
         titles.append(b['title'])
         indexes.append(b['index'])
         all_test_idxs.append(b['hts'].tolist())
         all_label2in_train.append(b['label2in_train'])
-
-        graphs.append(b['graph'])
 
     return dict(input_id=input_ids,
                 input_mask=input_mask,
@@ -75,13 +77,14 @@ def get_batch(batch):
                 hts=hts,
                 relations=relations,
                 relation_mask=relation_mask,
-                type_mask=type_mask,
+                sent_mask=sent_mask,
+                evidences=evidences,
+                sent_map=sent_map,
                 # test
                 titles=titles,
                 indexes=indexes,
                 labels=all_label2in_train,
-                all_test_idxs=all_test_idxs,
-                graphs=graphs)
+                all_test_idxs=all_test_idxs)
 
 
 class DataModule(LightningDataModule):
@@ -96,8 +99,7 @@ class DataModule(LightningDataModule):
 
     def train_dataloader(self):
         train_dataloader = DataLoader(self.train_dataset, shuffle=True, num_workers=self.num_workers,
-                                      batch_size=self.batch_size, collate_fn=get_batch,
-                                      pin_memory=True)
+                                      batch_size=self.batch_size, collate_fn=get_batch)
         return train_dataloader
 
     def val_dataloader(self):

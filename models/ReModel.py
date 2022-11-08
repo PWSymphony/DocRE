@@ -76,6 +76,6 @@ class ReModel(nn.Module):
         h = torch.tanh(self.h_dense(h) + self.hc_dense(context_info))
         t = torch.tanh(self.t_dense(t) + self.tc_dense(context_info))
         res = self.clas(h, t)
-        res = res - (~kwargs['type_mask']).float() * MAX
+        # res = res - (~kwargs['type_mask']).float() * MAX
 
         return res

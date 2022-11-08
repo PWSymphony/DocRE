@@ -6,7 +6,6 @@ from collections import defaultdict
 from itertools import permutations
 from os.path import join as path_join
 
-import dgl
 import torch
 from tqdm import tqdm
 from transformers import AutoTokenizer
@@ -50,7 +49,7 @@ class Processor:
 
         for doc_id, doc in tqdm(enumerate(ori_data), total=len(ori_data), desc=suffix, unit='doc'):
             sent_len = [len(sent) for sent in doc['sents']]
-            sent_map = [0] + [sum(sent_len[:i + 1]) for i in range(len(sent_len))]
+            sent_mapping = [0] + [sum(sent_len[:i + 1]) for i in range(len(sent_len))]
             mention_start = set()
             mention_end = set()
             mention_num = 0
@@ -60,8 +59,8 @@ class Processor:
                     mention_start.add((mention['sent_id'], mention['pos'][0]))
                     mention_end.add((mention['sent_id'], mention['pos'][1] - 1))
 
-                    mention['global_pos'] = [mention['pos'][0] + sent_map[mention['sent_id']],
-                                             mention['pos'][1] + sent_map[mention['sent_id']]]
+                    mention['global_pos'] = [mention['pos'][0] + sent_mapping[mention['sent_id']],
+                                             mention['pos'][1] + sent_mapping[mention['sent_id']]]
 
             input_id = [self.tokenizer.cls_token_id]
             word_map = []
@@ -75,12 +74,16 @@ class Processor:
                     if (sent_id, word_id) in mention_end:
                         token = token + ['*']
                     token = self.tokenizer.convert_tokens_to_ids(token)
-
                     input_id.extend(token)
 
             assert len(word_map) == sum(sent_len)
             input_id.append(self.tokenizer.sep_token_id)
             word_map.append(len(input_id))  # 加上了最后的 sep_token_id
+
+            sent_map = torch.zeros((len(sent_len) + 1, len(input_id)))
+            sent_map[0][[0, -1]] = 1
+            for i in range(len(sent_len)):
+                sent_map[i + 1, word_map[sent_mapping[i]]: word_map[sent_mapping[i + 1]]] = 1
 
             mention_map = torch.zeros([mention_num, len(input_id)])
             entity_map = torch.zeros((len(doc['vertexSet']), mention_num))
@@ -99,17 +102,20 @@ class Processor:
                     'mention_num': mention_num,
                     'entity_num': len(doc['vertexSet']),
                     'mention_map': mention_map,
-                    'entity_map': entity_map}
+                    'entity_map': entity_map,
+                    'sent_map': sent_map}
 
             new_labels = []
             labels = doc.get('labels', [])  # labels: [{'r': 'P159', 'h': 0, 't': 2, 'evidence': [0]}, ...]
             train_triple = set()  # 存储训练集中的实体对 {(12, 4), (2, 4), ... }
             idx2label = defaultdict(list)
+            idx2evi = defaultdict(list)
             for label in labels:
                 rel = label['r']
                 assert (rel in self.rel2id)
                 label['r'] = self.rel2id[rel]  # 将关系代号转为关系ID, 如把 "p159" 转化为 "1"
                 idx2label[(label['h'], label['t'])].append(label['r'])
+                idx2evi[(label['h'], label['t'])].extend([i + 1 for i in label['evidence']])
 
                 train_triple.add((label['h'], label['t']))
 
@@ -128,52 +134,27 @@ class Processor:
 
                 new_labels.append(label)
 
-            item['labels'] = new_labels
-
-            hts = []
-            relations = []
             relation_num = len(self.rel2id)
-            all_type_mask = []
+            hts = [list(x) for x in permutations(range(len(doc['vertexSet'])), 2)]
+            relations = torch.zeros((len(hts), relation_num), dtype=torch.bool)
+
+            evidences = torch.zeros((len(hts), len(sent_len) + 1), dtype=torch.bool)
 
             i = -1
-            for j, k in permutations(range(len(doc['vertexSet'])), 2):
+            for j, k in hts:
                 i += 1
-
-                h_type = doc['vertexSet'][j][0]['type']
-                h_type = self.ner2id[h_type]
-                t_type = doc['vertexSet'][k][0]['type']
-                t_type = self.ner2id[t_type]
-                type_mask = torch.zeros(97, dtype=torch.bool)
-                mask_index = self.type_relation.get((h_type, t_type), [0])
-                type_mask[mask_index] = True
-                all_type_mask.append(type_mask)
-
-                relation = [0] * relation_num
-                hts.append([j, k])
-
-                if (j, k) in idx2label:
-                    for rel_id in idx2label[(j, k)]:
-                        relation[rel_id] = 1
-                else:
-                    relation[0] = 1
-                relations.append(relation)
+                relations[i][idx2label.get((j, k), [0])] = True
+                evidences[i][idx2evi.get((j, k), [0])] = True
 
             label2in_train = {}
             for label in new_labels:
                 label2in_train[(label['h'], label['t'], label['r'])] = label['in_train']
 
+            item['labels'] = new_labels
             item['hts'] = torch.tensor(hts)
-            item['relations'] = torch.tensor(relations)
+            item['relations'] = relations
             item['label2in_train'] = label2in_train
-            item['type_mask'] = torch.stack(all_type_mask, dim=0)
-
-            # =========================== Graph ===========================
-            u = [0] * len(hts)
-            v = list(range(1, len(hts) + 1))
-            graph = dgl.to_bidirected(dgl.graph((u, v)))
-            graph = dgl.add_self_loop(graph)
-            item['graph'] = graph
-
+            item['evidences'] = evidences
             data.append(item)
 
         print(suffix, ': ', len(data))

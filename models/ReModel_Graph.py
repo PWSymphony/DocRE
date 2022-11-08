@@ -26,11 +26,8 @@ class ReModel_Graph(nn.Module):
         self.t_dense = nn.Linear(bert_hidden_size, bert_hidden_size)
         self.hc_dense = nn.Linear(bert_hidden_size, bert_hidden_size)
         self.tc_dense = nn.Linear(bert_hidden_size, bert_hidden_size)
-        self.clas = group_biLinear(bert_hidden_size, graph_feature_size, block_size)
+        self.extraction = group_biLinear(bert_hidden_size, graph_feature_size, block_size)
         self.CLS_dense = nn.Linear(bert_hidden_size, graph_feature_size)
-
-        self.GATs = GATs(graph_feature_size, graph_feature_size, graph_feature_size // 64, k=2)
-        self.ffnn = FFNN(graph_feature_size, config.relation_num)
 
     @staticmethod
     def get_ht(context, mention_map, entity_map, hts, ht_mask):
@@ -104,14 +101,8 @@ class ReModel_Graph(nn.Module):
 
         h = torch.tanh(self.h_dense(h) + self.hc_dense(context_info))
         t = torch.tanh(self.t_dense(t) + self.tc_dense(context_info))
-        node_feature = self.clas(h, t)
-
-        ht_num = ht_mask.squeeze(-1).sum(-1)
-        graph = dgl.batch(kwargs['graphs'])
-        node_feature = self.get_graph_feature(context, node_feature, ht_num)
-        new_node_feature = self.GATs(graph, node_feature)
-        node_feature = self.ffnn(node_feature + new_node_feature)
-        res = self.process_res(src=node_feature, ht_num=ht_num)
+        res = self.extraction(h, t)
+        CLS = self.CLS_dense(context[:, :1])
 
         return res
 

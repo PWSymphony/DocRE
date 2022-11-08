@@ -14,7 +14,7 @@ from transformers.optimization import get_linear_schedule_with_warmup
 
 from Dataset import DataModule
 from loss import ATLoss, BCELoss
-from models import ReModel, ReModel_Mention, ReModel_Graph
+from models import ReModel, ReModel_Mention, Temp
 from process_data import Processor
 from utils import Accuracy, MyLogger, all_accuracy
 
@@ -35,7 +35,7 @@ class PlModel(pl.LightningModule):
         else:
             cls_token_id = [tokenizer.cls_token_id]
             sep_token_id = [tokenizer.sep_token_id]
-        self.model = ReModel_Graph(args, AutoModel.from_pretrained(args.bert_name), cls_token_id, sep_token_id)
+        self.model = ReModel(args, AutoModel.from_pretrained(args.bert_name), cls_token_id, sep_token_id)
         self.loss_fn = LOSS_FN[args.loss_fn](args)
         self.loss_list = []
         self.acc = all_accuracy()

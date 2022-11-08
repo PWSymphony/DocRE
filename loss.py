@@ -41,16 +41,17 @@ class ATLoss(nn.Module):
         # Rank positive classes to TH
         logit1 = new_pred - (1 - p_mask) * MAX
         loss1 = -(F.log_softmax(logit1, dim=-1) * labels).sum(-1)
+        loss1 = loss1.mean()
         # loss1 = loss1[type_mask]
 
         # Rank TH to negative classes
         logit2 = new_pred - (1 - n_mask) * MAX
         loss2 = -(F.log_softmax(logit2, dim=-1) * th_label).sum(-1)
+        loss2 = loss2.mean()
         # loss2 = loss2[type_mask]
 
         # Sum two parts
         loss = loss1 + loss2
-        loss = loss.mean()
         return pred, loss
 
     @staticmethod
