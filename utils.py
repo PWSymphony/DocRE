@@ -128,25 +128,41 @@ class MyLogger(LightningLoggerBase):
 
     @rank_zero_only
     def log_hyperparams(self, params):
-        out = {}
+        self.base_log.info('-' * 32 + 'config information' + '-' * 32)
+        args = {}
         for k in params.keys():
             if isinstance(params[k], argparse.Namespace):
-                out.update(params[k].__dict__)
+                args.update(params[k].__dict__)
             else:
-                out[k] = params[k]
-        out = json.dumps(out, indent=4)
-        self.base_log.info(out)
+                args[k] = params[k]
+        i = 1
+        message = []
+        for k, v in args.items():
+            message.append(f'{k}: {v} ')
+            if i % 2 == 0:
+                message.append('\n')
+            i += 1
+        max_len = max(map(len, message))
+        message = [m if m == '\n' else m + (max_len - len(m)) * ' ' for m in message]
+        self.base_log.info('|' + '|'.join(message))
+        self.base_log.info('-' * 82)
 
     @rank_zero_only
     def log_metrics(self, metrics=None, step=None):
-        if 'info' in metrics and metrics['info'] == 0:
-            m = f"step:{int(step) + 1:5d} | epoch:{int(metrics['epoch'] + 1):2d} | loss:{metrics['loss']:.6f} | " \
-                f"NA:{metrics['NA']:2.2f} | " \
-                f"not NA:{metrics['not_NA']:2.2f} | total:{metrics['total']:2.2f} | lr:{metrics['lr']:.2e}"
-        elif 'info' in metrics and metrics['info'] == 1:
-            self.max_f1 = max(metrics['all_f1'] * 100, self.max_f1)
-            m = f"  all_F1:{metrics['all_f1'] * 100:2.2f}  |  ign_F1:{metrics['ign_f1'] * 100:2.2f}  |  " \
-                f"ign_theta_f1: {metrics['ign_theta_f1'] * 100: 2.2f} | current max f1: {self.max_f1:2.2f}"
-        else:
-            m = str(metrics)
-        self.base_log.info(m)
+        epoch = int(metrics.pop('epoch'))
+        lr = metrics.pop('lr', None)
+        loss = metrics.pop('loss', None)
+        info = [f'{k}: {v: .2f}' if isinstance(v, float) else f'{k}: {v}' for k, v in metrics.items()]
+        info = ' | '.join(info)
+        pre = f'epoch: {epoch + 1: 3d} | step: {step + 1: 6d} | '
+
+        if loss:
+            pre = pre + f'loss: {loss: 5f} | '
+        info = pre + info
+
+        if lr:
+            info = info + f' | lr: {lr: .3e}'
+        self.base_log.info(info)
+
+        if (step + 1) % 100 != 0:
+            self.base_log.info('-' * 64)

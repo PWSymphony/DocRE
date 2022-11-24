@@ -26,10 +26,10 @@ class ATLoss(nn.Module):
         have_relation_num = label_mask.sum(-1)
         new_pred = [pred[i, :index] for i, index in enumerate(have_relation_num)]
         labels = [labels[i, :index] for i, index in enumerate(have_relation_num)]
-        # type_mask = [batch['type_mask'][i, :index] for i, index in enumerate(have_relation_num)]
+        type_mask = [batch['type_mask'][i, :index] for i, index in enumerate(have_relation_num)]
         new_pred = torch.cat(new_pred, dim=0)
         labels = torch.cat(labels, dim=0)
-        # type_mask = torch.cat(type_mask, dim=0)
+        type_mask = torch.cat(type_mask, dim=0)
         # TH label
         th_label = torch.zeros_like(labels, dtype=torch.float).to(labels)
         th_label[:, 0] = 1.0
@@ -40,15 +40,15 @@ class ATLoss(nn.Module):
 
         # Rank positive classes to TH
         logit1 = new_pred - (1 - p_mask) * MAX
-        loss1 = -(F.log_softmax(logit1, dim=-1) * labels).sum(-1)
-        loss1 = loss1.mean()
+        loss1 = -(F.log_softmax(logit1, dim=-1) * labels)
         # loss1 = loss1[type_mask]
+        loss1 = loss1.sum(-1).mean()
 
         # Rank TH to negative classes
         logit2 = new_pred - (1 - n_mask) * MAX
-        loss2 = -(F.log_softmax(logit2, dim=-1) * th_label).sum(-1)
-        loss2 = loss2.mean()
+        loss2 = -(F.log_softmax(logit2, dim=-1) * th_label)
         # loss2 = loss2[type_mask]
+        loss2 = loss2.sum(-1).mean()
 
         # Sum two parts
         loss = loss1 + loss2
@@ -136,10 +136,8 @@ class ATLoss(nn.Module):
         ign_f1 = (2 * pr_x * pr_y / (pr_x + pr_y + 1e-20))
         self.test_result = []
         self.total_recall = 0
-        return dict(all_f1=all_f1,
-                    theta=0,
-                    ign_f1=ign_f1,
-                    ign_theta_f1=0)
+        return dict(all_f1=round(all_f1 * 100, 2),
+                    ign_f1=round(ign_f1 * 100, 2))
 
 
 class BCELoss(nn.Module):
@@ -243,7 +241,7 @@ class BCELoss(nn.Module):
 
         self.test_result = []
         self.total_recall = 0
-        return dict(all_f1=all_f1,
+        return dict(all_f1=round(all_f1 * 100, 2),
+                    ign_f1=round(ign_f1 * 100, 2),
                     theta=theta,
-                    ign_f1=ign_f1,
-                    ign_theta_f1=f1_arr[ign_pos])
+                    ign_theta_f1=round(f1_arr[ign_pos] * 100, 2))

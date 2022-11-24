@@ -3,8 +3,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-MIN = 2 ** (-14)
-MAX = 65500
+MIN = 1e-20
+MAX = 1e20
 
 
 class group_biLinear(nn.Module):
