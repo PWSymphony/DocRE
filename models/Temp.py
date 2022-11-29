@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from .utils import MIN, group_biLinear, process_long_input
 
@@ -13,9 +14,18 @@ class Temp(nn.Module):
         bert_hidden_size = self.bert.config.hidden_size
         block_size = 64
 
+        self.bin_h_dense = nn.Linear(bert_hidden_size * 2, bert_hidden_size)
+        self.bin_t_dense = nn.Linear(bert_hidden_size * 2, bert_hidden_size)
+        self.bin_clas = group_biLinear(bert_hidden_size, 2, block_size)
+        bin_emb = 97
+        self.bin_emb = nn.Parameter(torch.empty(2, bin_emb), requires_grad=False)
         self.h_dense = nn.Linear(bert_hidden_size * 2, bert_hidden_size)
         self.t_dense = nn.Linear(bert_hidden_size * 2, bert_hidden_size)
         self.clas = group_biLinear(bert_hidden_size, config.relation_num, block_size)
+
+        with torch.no_grad():
+            self.bin_emb.data[0, 0] = 1
+            self.bin_emb.data[1, 1:] = 1
 
     @staticmethod
     def get_ht(context, mention_map, entity_map, hts):
@@ -54,9 +64,15 @@ class Temp(nn.Module):
 
         context, attention = process_long_input(self.bert, input_id, input_mask, self.cls_token_id, self.sep_token_id)
         h, t = self.get_ht(context, mention_map, entity_map, hts)
-        context_info = self.context_pooling(context, attention, entity_map, entity_map, hts)
+        context_info = self.context_pooling(context, attention, mention_map, entity_map, hts)
+
+        bin_h = torch.tanh(self.bin_h_dense(torch.cat([h, context_info], dim=-1)))
+        bin_t = torch.tanh(self.bin_t_dense(torch.cat([h, context_info], dim=-1)))
+        bin_res = self.bin_clas(bin_h, bin_t)
+        bin_emb = F.softmax(bin_res, dim=-1) @ self.bin_emb
+
         h = torch.tanh(self.h_dense(torch.cat([h, context_info], dim=-1)))
         t = torch.tanh(self.t_dense(torch.cat([h, context_info], dim=-1)))
-        res = self.clas(h, t)
+        res = self.clas(h, t) + bin_emb
 
-        return res
+        return res, bin_res

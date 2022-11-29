@@ -14,9 +14,9 @@ from transformers.optimization import get_linear_schedule_with_warmup
 
 from Dataset import DataModule
 from loss import ATLoss, BCELoss
-from models import ReModel, ReModel_Mention, Temp
+from models import Temp
 from process_data import Processor
-from utils import MyLogger, all_accuracy
+from utils import AllAccuracy, F1, MyLogger
 
 warnings.filterwarnings("ignore", category=UserWarning)
 transformer_log.set_verbosity_error()
@@ -35,10 +35,11 @@ class PlModel(pl.LightningModule):
         else:
             cls_token_id = [tokenizer.cls_token_id]
             sep_token_id = [tokenizer.sep_token_id]
-        self.model = ReModel(args, AutoModel.from_pretrained(args.bert_name), cls_token_id, sep_token_id)
+        self.model = Temp(args, AutoModel.from_pretrained(args.bert_name), cls_token_id, sep_token_id)
         self.loss_fn = LOSS_FN[args.loss_fn](args)
         self.loss_list = []
-        self.acc = all_accuracy()
+        self.all_acc = AllAccuracy()
+        self.f1 = F1()
         self.save_hyperparameters(logger=True)
 
     def configure_optimizers(self):
@@ -58,54 +59,81 @@ class PlModel(pl.LightningModule):
         return self.model(**batch)
 
     def training_step(self, batch, batch_idx):
-        output = self.model(**batch)
+        output, bin_res = self.model(**batch)
         pred, loss = self.loss_fn(pred=output, batch=batch)
-        self.compute_output(output=pred, batch=batch)
+        bin_label = self.get_bin_label(batch['relations'], batch['relation_mask'])
+        bin_loss = F.cross_entropy(bin_res.permute(0, 2, 1), bin_label.long(), reduction='none')
+        bin_loss = (bin_loss * batch['relation_mask'].float()).sum() / batch['relation_mask'].sum()
+        self.compute_output(output=pred, label=batch['relations'], mask=batch['relation_mask'], compute_NA=True)
+        self.compute_output(output=bin_res, label=bin_label, mask=batch['relation_mask'], compute_NA=False)
 
-        self.loss_list.append(loss)
-        log_dict = self.acc.get()
+        self.loss_list.append(loss + bin_loss)
+        log_dict = self.all_acc.get()
+        log_dict.update(self.f1.get())
         log_dict['loss'] = torch.stack(self.loss_list).mean()
         log_dict['lr'] = self.lr_schedulers().get_last_lr()[0]
         log_dict['epoch'] = float(self.current_epoch)
         self.log_dict(log_dict, prog_bar=False)
-        return loss
+        return loss + bin_loss
 
     def training_epoch_end(self, outputs):
-        self.acc.clear()
+        self.all_acc.clear()
+        self.f1.clear()
         self.loss_list = []
 
     def validation_step(self, batch, batch_idx):
-        output = self.model(**batch)
+        output, bin_res = self.model(**batch)
         self.loss_fn.push_result(output, batch)
+        self.compute_output(output=bin_res, label=self.get_bin_label(batch['relations'], batch['relation_mask']),
+                            mask=batch['relation_mask'], compute_NA=False)
         pred, loss = self.loss_fn(pred=output, batch=batch)
         return loss
 
     def validation_epoch_end(self, validation_step_outputs):
         dev_result = self.loss_fn.get_result()
+        dev_result.update(self.f1.get())
+        self.f1.clear()
         self.log_dict(dev_result, prog_bar=False)
 
     def test_step(self, batch, batch_idx):
-        output = self.model(**batch)
+        output, _ = self.model(**batch)
         self.loss_fn.push_result(output, batch)
 
     def test_epoch_end(self, outputs):
         self.loss_fn.get_result(is_test=True)
 
-    def compute_output(self, output, batch):
+    def compute_output(self, output, label, mask=None, compute_NA=False):
         with torch.no_grad():
-            relations = batch['relations'].bool()
-            relation_mask = batch['relation_mask'].unsqueeze(2)
-            top_index = F.one_hot(torch.argmax(output, dim=-1),
-                                  num_classes=self.args.relation_num).bool()
-            result = top_index & relations & relation_mask
+            if compute_NA:
+                cur_label = label.bool()
+                top_index = F.one_hot(torch.argmax(output, dim=-1),
+                                      num_classes=output.shape[-1]).bool()
+                result = top_index & cur_label
+                if mask is not None:
+                    if len(mask.shape) < len(cur_label.shape):
+                        cur_mask = mask.unsqueeze(2)
+                    result = result & cur_mask
+                # gold.sum(0).sum(0) 一对实体有多种关系会被计算为多对实体
+                gold_na = cur_label[..., 0].sum()
+                gold_not_na = cur_label[..., 1:].sum(-1).bool().sum()  # 先求和，在将不为0的改为1，再次求和
+                pred_na = result[..., 0].sum()
+                pred_not_na = result[..., 1:].sum()
+                self.all_acc.add_NA(num=gold_na, correct_num=pred_na)
+                self.all_acc.add_not_NA(num=gold_not_na, correct_num=pred_not_na)
+            else:
+                top_index = torch.argmax(output, dim=-1)
+                result = top_index.bool() & label.bool()
+                true = result.sum()
+                total = (top_index.bool() & mask).sum()
+                gold = label.sum()
+                self.f1.add(total, true, gold)
 
-            # gold.sum(0).sum(0) 一对实体有多种关系会被计算为多对实体
-            gold_na = relations[..., 0].sum()
-            gold_not_na = relations[..., 1:].sum(-1).bool().sum()  # 先求和，在将不为0的改为1，再次求和
-            pred_na = result[..., 0].sum()
-            pred_not_na = result[..., 1:].sum()
-            self.acc.add_NA(num=gold_na, correct_num=pred_na)
-            self.acc.add_not_NA(num=gold_not_na, correct_num=pred_not_na)
+    @staticmethod
+    def get_bin_label(label, mask=None):
+        bin_label = 1 - label[..., 0]
+        bin_label = bin_label * mask.float()
+
+        return bin_label
 
 
 def main(args):
@@ -113,9 +141,6 @@ def main(args):
     if args.process_data:
         processor = Processor(args)
         processor()
-        for path in os.listdir(args.data_path):
-            if '.data' in path:
-                os.remove(os.path.join(args.data_path, path))
         print("数据处完成")
         exit()
 

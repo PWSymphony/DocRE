@@ -1,6 +1,4 @@
 import os
-import pickle
-import zipfile
 
 import torch
 from pytorch_lightning import LightningDataModule
@@ -11,12 +9,7 @@ from torch.utils.data import Dataset
 class my_dataset(Dataset):
     def __init__(self, path, file_name):
         file_path = os.path.join(path, file_name)
-        if not os.path.exists(file_path + ".data"):
-            with zipfile.ZipFile(file_path + '.zip') as zipFile:
-                zipFile.extractall(path)
-
-        with open(file_path + '.data', 'rb') as f:
-            self.data = pickle.loads(f.read())
+        self.data = torch.load(file_path + '.pt')
 
     def __getitem__(self, index):
         return self.data[index]

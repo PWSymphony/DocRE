@@ -1,5 +1,4 @@
 import argparse
-import json
 import logging
 import os
 import time
@@ -15,7 +14,7 @@ def get_logger(save_name, is_print=True):
     logger.setLevel(logging.DEBUG)
     formatter = logging.Formatter('%(message)s')
 
-    fh = logging.FileHandler(save_name + '.txt')
+    fh = logging.FileHandler(save_name + '.txt', encoding='utf-8')
     fh.setLevel(logging.DEBUG)
     fh.setFormatter(formatter)
     logger.addHandler(fh)
@@ -24,6 +23,7 @@ def get_logger(save_name, is_print=True):
         ch = logging.StreamHandler()
         ch.setLevel(logging.DEBUG)
         ch.setFormatter(formatter)
+
         logger.addHandler(ch)
 
     return logger
@@ -48,28 +48,7 @@ def get_params(model):
     return s
 
 
-class Accuracy(object):
-    def __init__(self):
-        self.correct = 0
-        self.total = 0
-
-    def add(self, is_correct):
-        self.total += 1
-        if is_correct:
-            self.correct += 1
-
-    def get(self):
-        if self.total == 0:
-            return 0.0
-        else:
-            return float(self.correct) / self.total
-
-    def clear(self):
-        self.correct = 0
-        self.total = 0
-
-
-class all_accuracy(object):
+class AllAccuracy(object):
     def __init__(self):
         self.NA_correct = 0
         self.NA_num = 0
@@ -101,6 +80,31 @@ class all_accuracy(object):
         self.NA_num = 0
         self.not_NA_correct = 0
         self.not_NA_num = 0
+
+
+class F1(object):
+    def __init__(self):
+        self.total = 0
+        self.true = 0
+        self.gold = 0
+
+    def add(self, total, true, gold):
+        self.total += total
+        self.true += true
+        self.gold += gold
+
+    def get(self):
+        precision = self.true / (self.gold + 1e-20)
+        recall = self.true / (self.total + 1e-20)
+        f1 = 2 * precision * recall / (recall + precision + 1e-20)
+        return dict(precision=round(float(precision) * 100, 2),
+                    recall=round(float(recall) * 100, 2),
+                    f1=round(float(f1) * 100, 2))
+
+    def clear(self):
+        self.total = 0
+        self.true = 0
+        self.gold = 0
 
 
 class MyLogger(LightningLoggerBase):
