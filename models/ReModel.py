@@ -10,8 +10,8 @@ class ReModel(nn.Module):
         super(ReModel, self).__init__()
         self.bert = AutoModel.from_pretrained(args.bert_name).requires_grad_(bool(args.pre_lr))
         tokenizer = AutoTokenizer.from_pretrained(args.bert_name)
-        self.cls_token_id = tokenizer.cls_token_id
-        self.sep_token_id = tokenizer.sep_token_id
+        self.cls_token_id = [tokenizer.cls_token_id]
+        self.sep_token_id = [tokenizer.sep_token_id]
         bert_hidden_size = self.bert.config.hidden_size
         block_size = 64
 
