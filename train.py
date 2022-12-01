@@ -28,14 +28,7 @@ class PlModel(pl.LightningModule):
     def __init__(self, args: argparse.Namespace):
         super(PlModel, self).__init__()
         self.args = args
-        tokenizer = AutoTokenizer.from_pretrained(args.bert_name)
-        if 'roberta' in args.bert_name:
-            cls_token_id = [tokenizer.cls_token_id]
-            sep_token_id = [tokenizer.sep_token_id, tokenizer.sep_token_id]
-        else:
-            cls_token_id = [tokenizer.cls_token_id]
-            sep_token_id = [tokenizer.sep_token_id]
-        self.model = Temp(args, AutoModel.from_pretrained(args.bert_name), cls_token_id, sep_token_id)
+        self.model = Temp(args)
         self.loss_fn = LOSS_FN[args.loss_fn](args)
         self.loss_list = []
         self.all_acc = AllAccuracy()
@@ -67,14 +60,15 @@ class PlModel(pl.LightningModule):
         self.compute_output(output=pred, label=batch['relations'], mask=batch['relation_mask'], compute_NA=True)
         self.compute_output(output=bin_res, label=bin_label, mask=batch['relation_mask'], compute_NA=False)
 
-        self.loss_list.append(loss + bin_loss)
+        final_loss = loss + bin_loss
+        self.loss_list.append(final_loss)
         log_dict = self.all_acc.get()
         log_dict.update(self.f1.get())
         log_dict['loss'] = torch.stack(self.loss_list).mean()
         log_dict['lr'] = self.lr_schedulers().get_last_lr()[0]
         log_dict['epoch'] = float(self.current_epoch)
         self.log_dict(log_dict, prog_bar=False)
-        return loss + bin_loss
+        return final_loss
 
     def training_epoch_end(self, outputs):
         self.all_acc.clear()
@@ -83,6 +77,9 @@ class PlModel(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         output, bin_res = self.model(**batch)
+        c = 0.1
+        mask = (bin_res[..., 1] < (bin_res[..., 0] + c)).unsqueeze(-1)
+        output.masked_fill_(mask, 0.)
         self.loss_fn.push_result(output, batch)
         self.compute_output(output=bin_res, label=self.get_bin_label(batch['relations'], batch['relation_mask']),
                             mask=batch['relation_mask'], compute_NA=False)
@@ -188,6 +185,7 @@ def main(args):
     else:
         model = PlModel(args)
         trainer.fit(model=model, datamodule=datamodule)
+
 
 
 if __name__ == "__main__":

@@ -1,21 +1,23 @@
 import torch
 import torch.nn as nn
+from transformers import AutoModel, AutoTokenizer
 
 from .utils import MIN, group_biLinear, process_long_input
 
 
 class ReModel(nn.Module):
-    def __init__(self, config, bert, cls_token_id, sep_token_id):
+    def __init__(self, args):
         super(ReModel, self).__init__()
-        self.bert = bert.requires_grad_(bool(config.pre_lr))
-        self.cls_token_id = cls_token_id
-        self.sep_token_id = sep_token_id
+        self.bert = AutoModel.from_pretrained(args.bert_name).requires_grad_(bool(args.pre_lr))
+        tokenizer = AutoTokenizer.from_pretrained(args.bert_name)
+        self.cls_token_id = tokenizer.cls_token_id
+        self.sep_token_id = tokenizer.sep_token_id
         bert_hidden_size = self.bert.config.hidden_size
         block_size = 64
 
         self.h_dense = nn.Linear(bert_hidden_size * 2, bert_hidden_size)
         self.t_dense = nn.Linear(bert_hidden_size * 2, bert_hidden_size)
-        self.clas = group_biLinear(bert_hidden_size, config.relation_num, block_size)
+        self.clas = group_biLinear(bert_hidden_size, args.relation_num, block_size)
 
     @staticmethod
     def get_ht(context, mention_map, entity_map, hts):

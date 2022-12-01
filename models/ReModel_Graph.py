@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_sequence
+from transformers import AutoModel, AutoTokenizer
 
 from . import MIN, group_biLinear, process_long_input
 
@@ -12,11 +13,12 @@ pad_sequence = partial(pad_sequence, batch_first=True)
 
 
 class ReModel_Graph(nn.Module):
-    def __init__(self, config, bert, cls_token_id, sep_token_id):
+    def __init__(self, args):
         super(ReModel_Graph, self).__init__()
-        self.bert = bert.requires_grad_(bool(config.pre_lr))
-        self.cls_token_id = cls_token_id
-        self.sep_token_id = sep_token_id
+        self.bert = AutoModel.from_pretrained(args.bert_name).requires_grad_(bool(args.pre_lr))
+        tokenizer = AutoTokenizer.from_pretrained(args.bert_name)
+        self.cls_token_id = tokenizer.cls_token_id
+        self.sep_token_id = tokenizer.sep_token_id
 
         bert_hidden_size = self.bert.config.hidden_size
         block_size = 64
