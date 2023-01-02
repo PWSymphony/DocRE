@@ -20,16 +20,46 @@ class ATLoss(nn.Module):
 
     @staticmethod
     def forward(pred, batch):
-        labels = batch['relations']
-        label_mask = batch['relation_mask']
+        relations = batch['relations']
+        relation_mask = batch['relation_mask']
 
-        have_relation_num = label_mask.sum(-1)
+        have_relation_num = relation_mask.sum(-1)
         new_pred = [pred[i, :index] for i, index in enumerate(have_relation_num)]
-        labels = [labels[i, :index] for i, index in enumerate(have_relation_num)]
-        type_mask = [batch['type_mask'][i, :index] for i, index in enumerate(have_relation_num)]
+        labels = [relations[i, :index] for i, index in enumerate(have_relation_num)]
         new_pred = torch.cat(new_pred, dim=0)
         labels = torch.cat(labels, dim=0)
-        type_mask = torch.cat(type_mask, dim=0)
+
+        # --------- 尝试加入间隔，但没效果 -----------
+        # with torch.no_grad():
+        #     # TH label
+        #     th_label = torch.zeros_like(labels, dtype=torch.float).to(labels)
+        #     th_label[:, 0] = 1.0
+        #     labels[:, 0] = 0.0
+        #
+        #     p_mask = labels + th_label  # [1, 0, 0, 1, 1, 0, 0, ...]
+        #     n_mask = 1 - labels  # [1, 0,]
+        #
+        #     p_c = 1
+        #     p_mask = p_mask.bool() & ((new_pred - new_pred[..., :1]) <= p_c)
+        #     p_mask = p_mask.float()
+        # # Rank positive classes to TH
+        # logit1 = new_pred - (1 - p_mask) * MAX
+        # loss_mask = labels.bool() & ((new_pred - new_pred[..., :1]) <= p_c)
+        # loss_mask = loss_mask.float()
+        # loss1 = -(F.log_softmax(logit1, dim=-1) * loss_mask).sum(-1)
+        #
+        # # Rank TH to negative classes
+        # with torch.no_grad():
+        #     n_c = 5
+        #     n_mask = n_mask.bool() & (-(new_pred - new_pred[..., :1]) <= n_c)
+        #     n_mask = n_mask.float()
+        #
+        # logit2 = new_pred - (1 - n_mask) * MAX
+        # n_loss_mask = th_label.bool() & (-(new_pred - new_pred[..., :1]) <= n_c)
+        # n_loss_mask = n_loss_mask.float()
+        # loss2 = -(F.log_softmax(logit2, dim=-1) * n_loss_mask).sum(-1)
+
+        # ---------- 原始AT loss -----------
         # TH label
         th_label = torch.zeros_like(labels, dtype=torch.float).to(labels)
         th_label[:, 0] = 1.0
@@ -40,19 +70,16 @@ class ATLoss(nn.Module):
 
         # Rank positive classes to TH
         logit1 = new_pred - (1 - p_mask) * MAX
-        loss1 = -(F.log_softmax(logit1, dim=-1) * labels)
-        # loss1 = loss1[type_mask]
-        loss1 = loss1.sum(-1).mean()
+        loss1 = -(F.log_softmax(logit1, dim=-1) * labels).sum(1)
 
         # Rank TH to negative classes
         logit2 = new_pred - (1 - n_mask) * MAX
-        loss2 = -(F.log_softmax(logit2, dim=-1) * th_label)
-        # loss2 = loss2[type_mask]
-        loss2 = loss2.sum(-1).mean()
+        loss2 = -(F.log_softmax(logit2, dim=-1) * th_label).sum(1)
 
         # Sum two parts
         loss = loss1 + loss2
-        return pred, loss
+        loss = loss.mean()
+        return loss
 
     @staticmethod
     def get_label(logits, label_mask, num_labels=-1):  # num_labels 是最大的标签数量
@@ -245,5 +272,3 @@ class BCELoss(nn.Module):
                     ign_f1=round(ign_f1 * 100, 2),
                     theta=theta,
                     ign_theta_f1=round(f1_arr[ign_pos] * 100, 2))
-
-

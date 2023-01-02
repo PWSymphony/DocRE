@@ -15,8 +15,10 @@ class ReModel(nn.Module):
         bert_hidden_size = self.bert.config.hidden_size
         block_size = 64
 
-        self.h_dense = nn.Linear(bert_hidden_size * 2, bert_hidden_size)
-        self.t_dense = nn.Linear(bert_hidden_size * 2, bert_hidden_size)
+        self.h_dense = nn.Linear(bert_hidden_size, bert_hidden_size)
+        self.t_dense = nn.Linear(bert_hidden_size, bert_hidden_size)
+        self.hc_dense = nn.Linear(bert_hidden_size, bert_hidden_size)
+        self.tc_dense = nn.Linear(bert_hidden_size, bert_hidden_size)
         self.clas = group_biLinear(bert_hidden_size, args.relation_num, block_size)
 
     @staticmethod
@@ -31,7 +33,7 @@ class ReModel(nn.Module):
         h = torch.stack([entity[i, hts[i, :, 0]] for i in range(batch_size)])
         t = torch.stack([entity[i, hts[i, :, 1]] for i in range(batch_size)])
 
-        return h, t
+        return h, t, entity
 
     @staticmethod
     def context_pooling(context, attention, mention_map, entity_map, hts):
@@ -55,10 +57,10 @@ class ReModel(nn.Module):
         entity_map = kwargs['entity_map']
 
         context, attention = process_long_input(self.bert, input_id, input_mask, self.cls_token_id, self.sep_token_id)
-        h, t = self.get_ht(context, mention_map, entity_map, hts)
-        context_info = self.context_pooling(context, attention, entity_map, entity_map, hts)
-        h = torch.tanh(self.h_dense(torch.cat([h, context_info], dim=-1)))
-        t = torch.tanh(self.t_dense(torch.cat([h, context_info], dim=-1)))
+        h, t, entity = self.get_ht(context, mention_map, entity_map, hts)
+        context_info = self.context_pooling(context, attention, mention_map, entity_map, hts)
+        h = torch.tanh(self.h_dense(h) + self.hc_dense(context_info))
+        t = torch.tanh(self.t_dense(t) + self.hc_dense(context_info))
         res = self.clas(h, t)
 
-        return res
+        return {'pred': res}

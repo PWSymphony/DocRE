@@ -9,12 +9,12 @@ import torch.nn.functional as F
 from pytorch_lightning import seed_everything
 from pytorch_lightning.callbacks import ModelCheckpoint
 from torch import optim
-from transformers import AutoModel, AutoTokenizer, logging as transformer_log
+from transformers import logging as transformer_log
 from transformers.optimization import get_linear_schedule_with_warmup
 
 from Dataset import DataModule
 from loss import ATLoss, BCELoss
-from models import Temp
+from models import ReModel_Graph
 from process_data import Processor
 from utils import AllAccuracy, F1, MyLogger
 
@@ -28,7 +28,7 @@ class PlModel(pl.LightningModule):
     def __init__(self, args: argparse.Namespace):
         super(PlModel, self).__init__()
         self.args = args
-        self.model = Temp(args)
+        self.model = ReModel_Graph(args)
         self.loss_fn = LOSS_FN[args.loss_fn](args)
         self.loss_list = []
         self.all_acc = AllAccuracy()
@@ -52,17 +52,19 @@ class PlModel(pl.LightningModule):
         return self.model(**batch)
 
     def training_step(self, batch, batch_idx):
-        output, bin_res = self.model(**batch)
-        pred, loss = self.loss_fn(pred=output, batch=batch)
-        bin_label = self.get_bin_label(batch['relations'], batch['relation_mask'])
-        bin_loss = F.cross_entropy(bin_res.permute(0, 2, 1), bin_label.long(), reduction='none')
-        bin_loss = (bin_loss * batch['relation_mask'].float()).sum() / batch['relation_mask'].sum()
+        output = self.model(**batch)
+        pred = output.get('pred', None)
+        loss = self.loss_fn(pred=pred, batch=batch)
         self.compute_output(output=pred, label=batch['relations'], mask=batch['relation_mask'], compute_NA=True)
-        self.compute_output(output=bin_res, label=bin_label, mask=batch['relation_mask'], compute_NA=False)
+        # bin_res = output.get('bin_res', None)
+        # bin_label = self.get_bin_label(batch['relations'], batch['relation_mask'])
+        # bin_loss = F.cross_entropy(bin_res.permute(0, 2, 1), bin_label.long(), reduction='none')
+        # bin_loss = bin_loss[batch['relation_mask']].mean()
+        # self.compute_output(output=bin_res, label=bin_label, mask=batch['relation_mask'], compute_NA=False)
 
-        final_loss = loss + bin_loss
+        final_loss = loss  # + bin_loss
         self.loss_list.append(final_loss)
-        log_dict = self.all_acc.get()
+        log_dict = {}
         log_dict.update(self.f1.get())
         log_dict['loss'] = torch.stack(self.loss_list).mean()
         log_dict['lr'] = self.lr_schedulers().get_last_lr()[0]
@@ -74,16 +76,25 @@ class PlModel(pl.LightningModule):
         self.all_acc.clear()
         self.f1.clear()
         self.loss_list = []
+        self.log_dict({'epoch': -1}, prog_bar=False)
+
+    def on_validation_start(self):
+        self.all_acc.clear()
+        self.f1.clear()
+        self.loss_list = []
 
     def validation_step(self, batch, batch_idx):
-        output, bin_res = self.model(**batch)
-        c = 0.1
-        mask = (bin_res[..., 1] < (bin_res[..., 0] + c)).unsqueeze(-1)
-        output.masked_fill_(mask, 0.)
-        self.loss_fn.push_result(output, batch)
-        self.compute_output(output=bin_res, label=self.get_bin_label(batch['relations'], batch['relation_mask']),
-                            mask=batch['relation_mask'], compute_NA=False)
-        pred, loss = self.loss_fn(pred=output, batch=batch)
+        output = self.model(**batch)
+        pred = output.get('pred', None)
+        # output, bin_res = self.model(**batch)
+        # c = 0.1
+        # mask = (bin_res[..., 1] < (bin_res[..., 0] - c)).unsqueeze(-1)
+        # output.masked_fill_(mask, 0.)
+        self.loss_fn.push_result(pred, batch)
+        # self.compute_output(output=bin_res, label=self.get_bin_label(batch['relations'], batch['relation_mask']),
+        #                     mask=batch['relation_mask'], compute_NA=False)
+        loss = self.loss_fn(pred=pred, batch=batch)
+
         return loss
 
     def validation_epoch_end(self, validation_step_outputs):
@@ -178,6 +189,7 @@ def main(args):
     # ========================================== 开始训练 ==========================================
     trainer = pl.Trainer.from_argparse_args(args=args, logger=my_log, callbacks=callbacks, strategy=strategy,
                                             num_sanity_val_steps=0)
+
     if args.is_test:
         ckpt = os.path.join(args.checkpoint_dir, args.save_name + '.ckpt')
         model = PlModel.load_from_checkpoint(ckpt)
@@ -185,7 +197,8 @@ def main(args):
     else:
         model = PlModel(args)
         trainer.fit(model=model, datamodule=datamodule)
-
+        # model = model.load_from_checkpoint(r'E:\pythonProject\MyDocRE\checkpoint\ATLOP.ckpt')
+        # trainer.validate(model=model, datamodule=datamodule)
 
 
 if __name__ == "__main__":

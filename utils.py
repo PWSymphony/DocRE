@@ -154,9 +154,13 @@ class MyLogger(LightningLoggerBase):
     @rank_zero_only
     def log_metrics(self, metrics=None, step=None):
         epoch = int(metrics.pop('epoch'))
+        if epoch == -1:
+            self.base_log.info('-' * 64)
+            return
+
         lr = metrics.pop('lr', None)
         loss = metrics.pop('loss', None)
-        info = [f'{k}: {v: .2f}' if isinstance(v, float) else f'{k}: {v}' for k, v in metrics.items()]
+        info = [f'{k}: {v: 3.2f}' if isinstance(v, float) else f'{k}: {v}' for k, v in metrics.items()]
         info = ' | '.join(info)
         pre = f'epoch: {epoch + 1: 3d} | step: {step + 1: 6d} | '
 
@@ -168,5 +172,86 @@ class MyLogger(LightningLoggerBase):
             info = info + f' | lr: {lr: .3e}'
         self.base_log.info(info)
 
-        if (step + 1) % 100 != 0:
-            self.base_log.info('-' * 64)
+# 备份
+# class PlModel(pl.LightningModule):
+#     def __init__(self, args: argparse.Namespace):
+#         super(PlModel, self).__init__()
+#         self.args = args
+#         self.model = Temp(args)
+#         self.loss_fn = LOSS_FN[args.loss_fn](args)
+#         self.loss_list = []
+#         self.all_acc = AllAccuracy()
+#         self.f1 = F1()
+#         self.save_hyperparameters(logger=True)
+#
+#     def configure_optimizers(self):
+#         total_step = self.args.total_step
+#         PLM = [p for n, p in self.named_parameters() if p.requires_grad and ('bert' in n)]
+#         not_PLM = [p for n, p in self.named_parameters() if p.requires_grad and ('bert' not in n)]
+#         optimizer = optim.AdamW([{'params': PLM, 'lr': self.args.pre_lr},
+#                                  {'params': not_PLM, 'lr': self.args.lr}])
+#         scheduler = get_linear_schedule_with_warmup(optimizer=optimizer,
+#                                                     num_warmup_steps=int(total_step * self.args.warm_ratio),
+#                                                     num_training_steps=total_step)
+#         return {"optimizer": optimizer,
+#                 "lr_scheduler": {"scheduler": scheduler,
+#                                  "interval": 'step'}}
+#
+#     def forward(self, batch):
+#         return self.model(**batch)
+#
+#     def training_step(self, batch, batch_idx):
+#         output = self.model(**batch)
+#         pred, loss = self.loss_fn(pred=output, batch=batch)
+#         self.compute_output(output=pred, label=batch['relations'], mask=batch['relation_mask'], compute_NA=True)
+#
+#         final_loss = loss  # + bin_loss
+#         self.loss_list.append(final_loss)
+#         log_dict = self.all_acc.get()
+#         log_dict['loss'] = torch.stack(self.loss_list).mean()
+#         log_dict['lr'] = self.lr_schedulers().get_last_lr()[0]
+#         log_dict['epoch'] = float(self.current_epoch)
+#         self.log_dict(log_dict, prog_bar=False)
+#         return final_loss
+#
+#     def training_epoch_end(self, outputs):
+#         self.all_acc.clear()
+#         self.f1.clear()
+#         self.loss_list = []
+#
+#     def validation_step(self, batch, batch_idx):
+#         output = self.model(**batch)
+#         self.loss_fn.push_result(output, batch)
+#         pred, loss = self.loss_fn(pred=output, batch=batch)
+#         return loss
+#
+#     def validation_epoch_end(self, validation_step_outputs):
+#         dev_result = self.loss_fn.get_result()
+#         dev_result.update(self.f1.get())
+#         self.f1.clear()
+#         self.log_dict(dev_result, prog_bar=False)
+#
+#     def test_step(self, batch, batch_idx):
+#         output = self.model(**batch)
+#         self.loss_fn.push_result(output, batch)
+#
+#     def test_epoch_end(self, outputs):
+#         self.loss_fn.get_result(is_test=True)
+#
+#     def compute_output(self, output, label, mask=None, compute_NA=False):
+#         with torch.no_grad():
+#             cur_label = label.bool()
+#             top_index = F.one_hot(torch.argmax(output, dim=-1),
+#                                   num_classes=output.shape[-1]).bool()
+#             result = top_index & cur_label
+#             if mask is not None:
+#                 if len(mask.shape) < len(cur_label.shape):
+#                     cur_mask = mask.unsqueeze(2)
+#                 result = result & cur_mask
+#             # gold.sum(0).sum(0) 一对实体有多种关系会被计算为多对实体
+#             gold_na = cur_label[..., 0].sum()
+#             gold_not_na = cur_label[..., 1:].sum(-1).bool().sum()  # 先求和，在将不为0的改为1，再次求和
+#             pred_na = result[..., 0].sum()
+#             pred_not_na = result[..., 1:].sum()
+#             self.all_acc.add_NA(num=gold_na, correct_num=pred_na)
+#             self.all_acc.add_not_NA(num=gold_not_na, correct_num=pred_not_na)

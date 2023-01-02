@@ -131,7 +131,7 @@ class ReModel_Mention(nn.Module):
         input_emb = torch.cat([input_emb[:, :, :1], h.unsqueeze(2), t.unsqueeze(2), context_info.unsqueeze(2),
                                input_emb[:, :, 1:]], dim=-2)
         # res = res - (~kwargs['type_mask']).float() * MAX
-        return res
+        return {'pred': res}
 
 
 def process_long_input_emb(model, input_ids, attention_mask, type_mask, start_tokens, end_tokens):

@@ -2,11 +2,17 @@ import argparse
 import json
 from collections import defaultdict
 from itertools import permutations
+from itertools import product
 from os.path import join as path_join
 
+import dgl
 import torch
 from tqdm import tqdm
 from transformers import AutoTokenizer
+
+pronouns = {'I', 'he', 'she', 'her', 'his', 'they', 'them', 'him', 'their', 'it', 'its', 'you', 'your', 'my', 'mine',
+            'we', 'hers', 'ours', 'our', 'theirs', 'myself', 'yourself', 'himself', 'herself', 'itself', 'ourselves',
+            'themselves'}
 
 
 class Processor:
@@ -32,7 +38,8 @@ class Processor:
         self.fact_in_train = set([])
 
         self.tokenizer = AutoTokenizer.from_pretrained(args.bert_name)
-        self.type_relation = self.get_type_relation(self.train_file_name)
+        self.type_pair = self.get_type_pair()
+        # self.type_relation = self.get_type_relation(self.train_file_name)
 
     def __call__(self):
         self.process(self.train_file_name, suffix='train')
@@ -71,6 +78,8 @@ class Processor:
                         token = ['*'] + token
                     if (sent_id, word_id) in mention_end:
                         token = token + ['*']
+                    # if word.lower() in pronouns:
+                    #     token = ['*'] + token + ['*']
                     token = self.tokenizer.convert_tokens_to_ids(token)
                     input_id.extend(token)
 
@@ -135,33 +144,38 @@ class Processor:
             relation_num = len(self.rel2id)
             hts = [list(x) for x in permutations(range(len(doc['vertexSet'])), 2)]
             relations = torch.zeros((len(hts), relation_num), dtype=torch.bool)
-            all_type_mask = []
+            type_index = []
+            # all_type_mask = []
             # evidences = torch.zeros((len(hts), len(sent_len) + 1), dtype=torch.bool)
 
             i = -1
             for j, k in hts:
                 i += 1
-                h_type = doc['vertexSet'][j][0]['type']
-                h_type = self.ner2id[h_type]
-                t_type = doc['vertexSet'][k][0]['type']
-                t_type = self.ner2id[t_type]
-                type_mask = torch.zeros(97, dtype=torch.bool)
-                mask_index = self.type_relation.get((h_type, t_type), [0])
-                type_mask[mask_index] = True
-                all_type_mask.append(type_mask)
-
                 relations[i][idx2label.get((j, k), [0])] = True
+                h_type = doc['vertexSet'][j][0]['type']
+                t_type = doc['vertexSet'][k][0]['type']
+                type_index.append(self.type_pair[(h_type, t_type)])
+
+                # h_type = self.ner2id[h_type]
+                # t_type = self.ner2id[t_type]
+                # type_mask = torch.zeros(97, dtype=torch.bool)
+                # mask_index = self.type_relation.get((h_type, t_type), [0])
+                # type_mask[mask_index] = True
+                # all_type_mask.append(type_mask)
                 # evidences[i][idx2evi.get((j, k), [0])] = True
 
             label2in_train = {}
             for label in new_labels:
                 label2in_train[(label['h'], label['t'], label['r'])] = label['in_train']
 
+            hts = torch.tensor(hts)
             item['labels'] = new_labels
-            item['hts'] = torch.tensor(hts)
+            item['hts'] = hts
             item['relations'] = relations
             item['label2in_train'] = label2in_train
-            item['type_mask'] = torch.stack(all_type_mask, dim=0)
+            item['type_pair'] = torch.tensor(type_index, dtype=torch.int64)
+            item['graph'] = dgl.graph((hts.t()[0], hts.t()[1]))
+            # item['type_mask'] = torch.stack(all_type_mask, dim=0)
             # item['evidences'] = evidences
             data.append(item)
 
@@ -196,3 +210,9 @@ class Processor:
             type_relation[k].update(t_relation[k[1]])
 
         return {k: list(v) + [0] for k, v in type_relation.items()}
+
+    @staticmethod
+    def get_type_pair():
+        type = ["ORG", "LOC", "TIME", "PER", "MISC", "NUM"]
+        type_pair = {(t[0], t[1]): i for i, t in enumerate(product(type, repeat=2))}
+        return type_pair
