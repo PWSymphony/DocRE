@@ -65,12 +65,9 @@ class AllAccuracy(object):
         self.not_NA_correct += correct_num
 
     def get(self):
-        NA_acc = self.NA_correct / self.NA_num if self.NA_num else 0
-        not_NA_acc = self.not_NA_correct / self.not_NA_num if self.not_NA_num else 0
-        if self.NA_num + self.not_NA_num:
-            total_acc = (self.NA_correct + self.not_NA_correct) / (self.NA_num + self.not_NA_num)
-        else:
-            total_acc = 0
+        NA_acc = self.NA_correct / (self.NA_num + 1e-20)
+        not_NA_acc = self.not_NA_correct / (self.not_NA_num + 1e-20)
+        total_acc = (self.NA_correct + self.not_NA_correct) / (self.NA_num + self.not_NA_num + 1e-20)
         return dict(NA=round(float(NA_acc) * 100, 2),
                     not_NA=round(float(not_NA_acc) * 100, 2),
                     total=round(float(total_acc) * 100, 2))

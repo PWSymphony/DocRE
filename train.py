@@ -14,9 +14,9 @@ from transformers.optimization import get_linear_schedule_with_warmup
 
 from Dataset import DataModule
 from loss import ATLoss, BCELoss
-from models import ReModel_Graph
+from models import ReModel
 from process_data import Processor
-from utils import AllAccuracy, F1, MyLogger
+from utils import AllAccuracy, MyLogger
 
 warnings.filterwarnings("ignore", category=UserWarning)
 transformer_log.set_verbosity_error()
@@ -28,19 +28,19 @@ class PlModel(pl.LightningModule):
     def __init__(self, args: argparse.Namespace):
         super(PlModel, self).__init__()
         self.args = args
-        self.model = ReModel_Graph(args)
+        self.model = ReModel(args)
         self.loss_fn = LOSS_FN[args.loss_fn](args)
         self.loss_list = []
         self.all_acc = AllAccuracy()
-        self.f1 = F1()
         self.save_hyperparameters(logger=True)
+        self.max_f1 = -1
 
     def configure_optimizers(self):
         total_step = self.args.total_step
-        PLM = [p for n, p in self.named_parameters() if p.requires_grad and ('bert' in n)]
-        not_PLM = [p for n, p in self.named_parameters() if p.requires_grad and ('bert' not in n)]
-        optimizer = optim.AdamW([{'params': PLM, 'lr': self.args.pre_lr},
-                                 {'params': not_PLM, 'lr': self.args.lr}])
+        plm = [p for n, p in self.named_parameters() if p.requires_grad and ('bert' in n)]
+        not_plm = [p for n, p in self.named_parameters() if p.requires_grad and ('bert' not in n)]
+        optimizer = optim.AdamW([{'params': plm, 'lr': self.args.pre_lr},
+                                 {'params': not_plm, 'lr': self.args.lr}])
         scheduler = get_linear_schedule_with_warmup(optimizer=optimizer,
                                                     num_warmup_steps=int(total_step * self.args.warm_ratio),
                                                     num_training_steps=total_step)
@@ -55,52 +55,38 @@ class PlModel(pl.LightningModule):
         output = self.model(**batch)
         pred = output.get('pred', None)
         loss = self.loss_fn(pred=pred, batch=batch)
-        self.compute_output(output=pred, label=batch['relations'], mask=batch['relation_mask'], compute_NA=True)
-        # bin_res = output.get('bin_res', None)
-        # bin_label = self.get_bin_label(batch['relations'], batch['relation_mask'])
-        # bin_loss = F.cross_entropy(bin_res.permute(0, 2, 1), bin_label.long(), reduction='none')
-        # bin_loss = bin_loss[batch['relation_mask']].mean()
-        # self.compute_output(output=bin_res, label=bin_label, mask=batch['relation_mask'], compute_NA=False)
+        self.compute_output(output=pred, label=batch['relations'], mask=batch['relation_mask'], )
 
-        final_loss = loss  # + bin_loss
-        self.loss_list.append(final_loss)
+        self.loss_list.append(loss)
         log_dict = {}
-        log_dict.update(self.f1.get())
+        log_dict.update(self.all_acc.get())
         log_dict['loss'] = torch.stack(self.loss_list).mean()
         log_dict['lr'] = self.lr_schedulers().get_last_lr()[0]
         log_dict['epoch'] = float(self.current_epoch)
         self.log_dict(log_dict, prog_bar=False)
-        return final_loss
+        return loss
 
     def training_epoch_end(self, outputs):
         self.all_acc.clear()
-        self.f1.clear()
         self.loss_list = []
         self.log_dict({'epoch': -1}, prog_bar=False)
 
     def on_validation_start(self):
         self.all_acc.clear()
-        self.f1.clear()
         self.loss_list = []
 
     def validation_step(self, batch, batch_idx):
         output = self.model(**batch)
         pred = output.get('pred', None)
-        # output, bin_res = self.model(**batch)
-        # c = 0.1
-        # mask = (bin_res[..., 1] < (bin_res[..., 0] - c)).unsqueeze(-1)
-        # output.masked_fill_(mask, 0.)
         self.loss_fn.push_result(pred, batch)
-        # self.compute_output(output=bin_res, label=self.get_bin_label(batch['relations'], batch['relation_mask']),
-        #                     mask=batch['relation_mask'], compute_NA=False)
         loss = self.loss_fn(pred=pred, batch=batch)
 
         return loss
 
     def validation_epoch_end(self, validation_step_outputs):
         dev_result = self.loss_fn.get_result()
-        dev_result.update(self.f1.get())
-        self.f1.clear()
+        self.max_f1 = max(self.max_f1, dev_result.get('all_f1', -1))
+        dev_result['max f1'] = self.max_f1
         self.log_dict(dev_result, prog_bar=False)
 
     def test_step(self, batch, batch_idx):
@@ -110,38 +96,23 @@ class PlModel(pl.LightningModule):
     def test_epoch_end(self, outputs):
         self.loss_fn.get_result(is_test=True)
 
-    def compute_output(self, output, label, mask=None, compute_NA=False):
+    def compute_output(self, output, label, mask=None):
         with torch.no_grad():
-            if compute_NA:
-                cur_label = label.bool()
-                top_index = F.one_hot(torch.argmax(output, dim=-1),
-                                      num_classes=output.shape[-1]).bool()
-                result = top_index & cur_label
-                if mask is not None:
-                    if len(mask.shape) < len(cur_label.shape):
-                        cur_mask = mask.unsqueeze(2)
-                    result = result & cur_mask
-                # gold.sum(0).sum(0) 一对实体有多种关系会被计算为多对实体
-                gold_na = cur_label[..., 0].sum()
-                gold_not_na = cur_label[..., 1:].sum(-1).bool().sum()  # 先求和，在将不为0的改为1，再次求和
-                pred_na = result[..., 0].sum()
-                pred_not_na = result[..., 1:].sum()
-                self.all_acc.add_NA(num=gold_na, correct_num=pred_na)
-                self.all_acc.add_not_NA(num=gold_not_na, correct_num=pred_not_na)
-            else:
-                top_index = torch.argmax(output, dim=-1)
-                result = top_index.bool() & label.bool()
-                true = result.sum()
-                total = (top_index.bool() & mask).sum()
-                gold = label.sum()
-                self.f1.add(total, true, gold)
-
-    @staticmethod
-    def get_bin_label(label, mask=None):
-        bin_label = 1 - label[..., 0]
-        bin_label = bin_label * mask.float()
-
-        return bin_label
+            cur_label = label.bool()
+            top_index = F.one_hot(torch.argmax(output, dim=-1),
+                                  num_classes=output.shape[-1]).bool()
+            result = top_index & cur_label
+            if mask is not None:
+                if len(mask.shape) < len(cur_label.shape):
+                    cur_mask = mask.unsqueeze(2)
+                result = result & cur_mask
+            # gold.sum(0).sum(0) 一对实体有多种关系会被计算为多对实体
+            gold_na = cur_label[..., 0].sum()
+            gold_not_na = cur_label[..., 1:].sum(-1).bool().sum()  # 先求和，在将不为0的改为1，再次求和
+            pred_na = result[..., 0].sum()
+            pred_not_na = result[..., 1:].sum()
+            self.all_acc.add_NA(num=gold_na, correct_num=pred_na)
+            self.all_acc.add_not_NA(num=gold_not_na, correct_num=pred_not_na)
 
 
 def main(args):
