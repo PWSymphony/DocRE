@@ -6,7 +6,7 @@ import torch.nn as nn
 from torch.nn.utils.rnn import pad_sequence
 from transformers import AutoModel, AutoTokenizer
 
-from . import MIN, group_biLinear, process_long_input
+from .utils import GroupBiLinear, context_pooling, get_ht, process_long_input
 
 pad_sequence = partial(pad_sequence, batch_first=True)
 
@@ -28,51 +28,6 @@ class ReModel_Graph(nn.Module):
         self.info = FFNN(bert_hidden_size * 2, bert_hidden_size)
         self.classify = Classify(bert_hidden_size, args.relation_num)
 
-    # @staticmethod
-    # def get_ht(context, mention_map, entity_map, hts):
-    #     batch_size = context.shape[0]
-    #     entity_mask = torch.sum(entity_map, dim=-1, keepdim=True) == 0
-    #     mention = mention_map @ context
-    #     mention_mean = mention.mean(dim=-1, keepdim=True)
-    #     mention = mention - mention_mean
-    #     mention = torch.exp(mention)
-    #     mention_mean = torch.exp(mention_mean)
-    #     entity = entity_map @ mention
-    #     entity_mean = entity_map @ mention_mean
-    #     entity = torch.log(entity) + torch.log(entity_mean)
-    #     h = torch.stack([entity[i, hts[i, :, 0]] for i in range(batch_size)])
-    #     t = torch.stack([entity[i, hts[i, :, 1]] for i in range(batch_size)])
-    #
-    #     return h, t, entity
-
-    @staticmethod
-    def get_ht(context, mention_map, entity_map, hts):
-        batch_size = context.shape[0]
-        entity_mask = torch.sum(entity_map, dim=-1, keepdim=True) == 0
-        mention = mention_map @ context
-        mention = torch.exp(mention)
-        entity = entity_map @ mention
-        entity = torch.masked_fill(entity, entity_mask, 1)
-        entity = torch.log(entity)
-        h = torch.stack([entity[i, hts[i, :, 0]] for i in range(batch_size)])
-        t = torch.stack([entity[i, hts[i, :, 1]] for i in range(batch_size)])
-
-        return h, t, entity
-
-    @staticmethod
-    def context_pooling(context, attention, mention_map, entity_map, hts):
-        batch_size = context.shape[0]
-        e_map = entity_map @ mention_map
-        e_map = e_map / (torch.sum(e_map, dim=-1, keepdim=True) + MIN)
-        entity_attention = (e_map.unsqueeze(1) @ attention)
-        h_attention = torch.stack([entity_attention[i][:, hts[i, :, 0]] for i in range(batch_size)], dim=0)
-        t_attention = torch.stack([entity_attention[i][:, hts[i, :, 1]] for i in range(batch_size)], dim=0)
-        context_attention = torch.sum(h_attention * t_attention, dim=1)
-        context_attention = context_attention / (torch.sum(context_attention, dim=-1, keepdim=True) + MIN)
-        context_info = context_attention @ context
-
-        return context_info
-
     def forward(self, **kwargs):
         input_id = kwargs['input_id']
         input_mask = kwargs['input_mask']
@@ -84,8 +39,8 @@ class ReModel_Graph(nn.Module):
         entity_num = entity_map.sum(-1).bool().sum(-1).long()
 
         context, attention = process_long_input(self.bert, input_id, input_mask, self.cls_token_id, self.sep_token_id)
-        h, t, entity = self.get_ht(context, mention_map, entity_map, hts)
-        context_info = self.context_pooling(context, attention, mention_map, entity_map, hts)
+        h, t, entity = get_ht(context, mention_map, entity_map, hts)
+        context_info = context_pooling(context, attention, mention_map, entity_map, hts)
 
         # type_info = self.type_emb(type_pair)
         # ht_info = self.edge_info(torch.cat([context_info, type_info], dim=-1))
@@ -156,7 +111,7 @@ class Classify(nn.Module):
         self.t_dense = nn.Linear(hidden_size, hidden_size)
         self.hc_dense = nn.Linear(hidden_size, hidden_size)
         self.tc_dense = nn.Linear(hidden_size, hidden_size)
-        self.clas = group_biLinear(hidden_size, num_class, block_size)
+        self.clas = GroupBiLinear(hidden_size, num_class, block_size)
 
     def forward(self, h, t, context_info):
         h = torch.tanh(self.h_dense(h) + self.hc_dense(context_info))

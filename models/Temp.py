@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from transformers import AutoModel, AutoTokenizer
 
-from .utils import MIN, group_biLinear, process_long_input
+from .utils import GroupBiLinear, context_pooling, get_ht, process_long_input
 
 
 class Temp(nn.Module):
@@ -17,34 +17,6 @@ class Temp(nn.Module):
         self.classify = Classify(self.bert.config.hidden_size, args.relation_num, block_size)
         # self.classify_bin = Classify(self.bert.config.hidden_size, 2, block_size)
 
-    @staticmethod
-    def get_ht(context, mention_map, entity_map, hts):
-        batch_size = context.shape[0]
-        entity_mask = torch.sum(entity_map, dim=-1, keepdim=True) == 0
-        mention = mention_map @ context
-        mention = torch.exp(mention)
-        entity = entity_map @ mention
-        entity = torch.masked_fill(entity, entity_mask, 1)
-        entity = torch.log(entity)
-        h = torch.stack([entity[i, hts[i, :, 0]] for i in range(batch_size)])
-        t = torch.stack([entity[i, hts[i, :, 1]] for i in range(batch_size)])
-
-        return h, t
-
-    @staticmethod
-    def context_pooling(context, attention, mention_map, entity_map, hts):
-        batch_size = context.shape[0]
-        e_map = entity_map @ mention_map
-        e_map = e_map / (torch.sum(e_map, dim=-1, keepdim=True) + MIN)
-        entity_attention = (e_map.unsqueeze(1) @ attention)
-        h_attention = torch.stack([entity_attention[i][:, hts[i, :, 0]] for i in range(batch_size)], dim=0)
-        t_attention = torch.stack([entity_attention[i][:, hts[i, :, 1]] for i in range(batch_size)], dim=0)
-        context_attention = torch.sum(h_attention * t_attention, dim=1)
-        context_attention = context_attention / (torch.sum(context_attention, dim=-1, keepdim=True) + MIN)
-        context_info = context_attention @ context
-
-        return context_info
-
     def forward(self, **kwargs):
         input_id = kwargs['input_id']
         input_mask = kwargs['input_mask']
@@ -53,8 +25,8 @@ class Temp(nn.Module):
         entity_map = kwargs['entity_map']
 
         context, attention = process_long_input(self.bert, input_id, input_mask, self.cls_token_id, self.sep_token_id)
-        h, t = self.get_ht(context, mention_map, entity_map, hts)
-        context_info = self.context_pooling(context, attention, mention_map, entity_map, hts)
+        h, t, _ = get_ht(context, mention_map, entity_map, hts)
+        context_info = context_pooling(context, attention, mention_map, entity_map, hts)
 
         res = self.classify(h, t, context_info)
         res_bin = self.classify_bin(h, t, context_info)
@@ -69,7 +41,7 @@ class Classify(nn.Module):
         self.t_dense = nn.Linear(hidden_size, hidden_size)
         self.hc_dense = nn.Linear(hidden_size, hidden_size)
         self.tc_dense = nn.Linear(hidden_size, hidden_size)
-        self.clas = group_biLinear(hidden_size, num_class, block_size)
+        self.clas = GroupBiLinear(hidden_size, num_class, block_size)
 
     def forward(self, h, t, context_info):
         h = torch.tanh(self.h_dense(h) + self.hc_dense(context_info))

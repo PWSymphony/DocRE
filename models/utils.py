@@ -7,9 +7,9 @@ MIN = 1e-20
 MAX = 1e20
 
 
-class group_biLinear(nn.Module):
+class GroupBiLinear(nn.Module):
     def __init__(self, in_feature, out_feature, block_size):
-        super(group_biLinear, self).__init__()
+        super(GroupBiLinear, self).__init__()
         assert in_feature % block_size == 0
         self.linear = nn.Linear(in_feature * block_size, out_feature)
         self.block_size = block_size
@@ -89,10 +89,10 @@ def process_long_input(model, input_ids, attention_mask, start_tokens, end_token
                 output2 = F.pad(output2, (0, 0, l_i - 512 + len_start, c - l_i))
                 mask2 = F.pad(mask2, (l_i - 512 + len_start, c - l_i))
                 att2 = F.pad(att2, [l_i - 512 + len_start, c - l_i, l_i - 512 + len_start, c - l_i])
-                mask = mask1 + mask2 + 1e-10
+                mask = mask1 + mask2 + MIN
                 output = (output1 + output2) / mask.unsqueeze(-1)
                 att = (att1 + att2)
-                att = att / (att.sum(-1, keepdim=True) + 1e-10)  # 归一化
+                att = att / (att.sum(-1, keepdim=True) + MIN)  # 归一化
                 new_output.append(output)
                 new_attention.append(att)
             i += n_s
@@ -182,3 +182,31 @@ class DCGCN(nn.Module):
         out = self.linear_output(gcn_outputs)
 
         return out
+
+
+def get_ht(context, mention_map, entity_map, hts):
+    batch_size = context.shape[0]
+    entity_mask = torch.sum(entity_map, dim=-1, keepdim=True) == 0
+    mention = mention_map @ context
+    mention = torch.exp(mention)
+    entity = entity_map @ mention
+    entity = torch.masked_fill(entity, entity_mask, 1)
+    entity = torch.log(entity)
+    h = torch.stack([entity[i, hts[i, :, 0]] for i in range(batch_size)])
+    t = torch.stack([entity[i, hts[i, :, 1]] for i in range(batch_size)])
+
+    return h, t, entity
+
+
+def context_pooling(context, attention, mention_map, entity_map, hts):
+    batch_size = context.shape[0]
+    e_map = entity_map @ mention_map
+    e_map = e_map / (torch.sum(e_map, dim=-1, keepdim=True) + MIN)
+    entity_attention = (e_map.unsqueeze(1) @ attention)
+    h_attention = torch.stack([entity_attention[i][:, hts[i, :, 0]] for i in range(batch_size)], dim=0)
+    t_attention = torch.stack([entity_attention[i][:, hts[i, :, 1]] for i in range(batch_size)], dim=0)
+    context_attention = torch.sum(h_attention * t_attention, dim=1)
+    context_attention = context_attention / (torch.sum(context_attention, dim=-1, keepdim=True) + MIN)
+    context_info = context_attention @ context
+
+    return context_info

@@ -1,6 +1,4 @@
 k = 1, dim = 768
-
-2022年12月09日, 11:44
 Using 16bit native Automatic Mixed Precision (AMP)
 GPU available: True, used: True
 TPU available: False, using: 0 TPU cores

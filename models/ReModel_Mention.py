@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformers import AutoModel, AutoTokenizer
 
-from .utils import MAX, MIN, group_biLinear, process_long_input
+from .utils import GroupBiLinear, MAX, MIN, process_long_input
 
 
 class ReModel_Mention(nn.Module):
@@ -21,7 +21,7 @@ class ReModel_Mention(nn.Module):
         self.t_dense = nn.Linear(bert_hidden_size, bert_hidden_size)
         self.hc_dense = nn.Linear(bert_hidden_size, bert_hidden_size)
         self.tc_dense = nn.Linear(bert_hidden_size, bert_hidden_size)
-        self.clas = group_biLinear(bert_hidden_size, args.relation_num, block_size)
+        self.clas = GroupBiLinear(bert_hidden_size, args.relation_num, block_size)
 
     # @staticmethod
     # def get_ht(context, attention, mention_map, entity_map, hts, ht_mask):

@@ -1,6 +1,5 @@
 k = 2, dim=64
 Global seed set to 0
-2022年12月09日, 15:58
 Using 16bit native Automatic Mixed Precision (AMP)
 GPU available: True, used: True
 TPU available: False, using: 0 TPU cores

@@ -147,3 +147,5 @@ wandb/
 *.ckpt
 temp/
 *.zip
+zip_file.py
+*.tar
